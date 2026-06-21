@@ -177,6 +177,35 @@ create policy "Users can delete own reactions"
   using (user_id = auth.uid());
 
 -- ============================================================
+-- AUTO-CREATE USER PROFILES ON SIGNUP
+-- When a new user signs up via Supabase Auth, this trigger
+-- automatically inserts a row into public.users.
+-- This is REQUIRED when email confirmation is enabled.
+-- ============================================================
+
+-- Function that runs on auth.users insert
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = ''
+as $$
+begin
+  insert into public.users (id, display_name, avatar_url)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data ->> 'display_name', 'User'),
+    new.raw_user_meta_data ->> 'avatar_url'
+  );
+  return new;
+end;
+$$;
+
+-- Trigger on auth.users after insert
+create or replace trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- ============================================================
 -- REALTIME (enable on messages, message_reactions, users)
 -- ============================================================
 -- Run these in Supabase Dashboard > Database > Replication
