@@ -4,6 +4,7 @@ import {
   StyleSheet, Alert, TextInput, Modal, ActivityIndicator,
 } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
+import { Ionicons } from '@expo/vector-icons'
 import { useAuthStore, useChannelsStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
 
@@ -11,12 +12,17 @@ const RECENT_THRESHOLD = 2 * 60 * 1000 // 2 minutes
 
 export default function ChatsListScreen({ navigation }) {
   const user = useAuthStore((s) => s.user)
-  const { channels, loading, fetchChannels, createChannel } = useChannelsStore()
-  const [showNewChannel, setShowNewChannel] = useState(false)
-  const [newChannelName, setNewChannelName] = useState('')
+  const { channels, loading, fetchChannels, createChannel, startDirectChat } = useChannelsStore()
+  const [showNewChat, setShowNewChat] = useState(false)
+  const [users, setUsers] = useState([])
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [selectedUsers, setSelectedUsers] = useState([])
+  const [showGroupNameInput, setShowGroupNameInput] = useState(false)
+  const [groupName, setGroupName] = useState('')
+  const [creating, setCreating] = useState(false)
   const [onlineUsers, setOnlineUsers] = useState({})
   const [lastMessages, setLastMessages] = useState({})
-  const [creating, setCreating] = useState(false)
 
   useFocusEffect(
     useCallback(() => {
@@ -27,7 +33,6 @@ export default function ChatsListScreen({ navigation }) {
   useEffect(() => {
     if (!user) return
 
-    // Fetch online statuses
     const fetchStatuses = async () => {
       const { data } = await supabase
         .from('users')
@@ -68,13 +73,67 @@ export default function ChatsListScreen({ navigation }) {
     })
   }, [channels])
 
-  const handleCreateChannel = async () => {
-    if (!newChannelName.trim()) return
+  const openNewChat = async () => {
+    setShowNewChat(true)
+    setSearchQuery('')
+    setSelectedUsers([])
+    setShowGroupNameInput(false)
+    setGroupName('')
+    await fetchUsers()
+  }
+
+  const fetchUsers = async () => {
+    if (!user) return
+    setUsersLoading(true)
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, display_name, avatar_url, last_seen')
+      .neq('id', user.id)
+      .order('display_name')
+
+    if (error) {
+      console.error('fetchUsers error:', error)
+    } else {
+      setUsers(data || [])
+    }
+    setUsersLoading(false)
+  }
+
+  const toggleUser = (userId) => {
+    setSelectedUsers((prev) => {
+      if (prev.includes(userId)) {
+        return prev.filter((id) => id !== userId)
+      }
+      return [...prev, userId]
+    })
+  }
+
+  const handleCreateChat = async () => {
+    if (selectedUsers.length === 0) return
+
     setCreating(true)
     try {
-      await createChannel(newChannelName.trim(), [user.id])
-      setNewChannelName('')
-      setShowNewChannel(false)
+      if (selectedUsers.length === 1) {
+        // Direct message
+        const channel = await startDirectChat(selectedUsers[0])
+        if (channel) {
+          setShowNewChat(false)
+          navigation.navigate('Chat', { channel })
+        }
+      } else {
+        // Group chat - need a name
+        if (!showGroupNameInput) {
+          setShowGroupNameInput(true)
+          setCreating(false)
+          return
+        }
+        const name = groupName.trim() || `Group (${selectedUsers.length + 1})`
+        const channel = await createChannel(name, selectedUsers)
+        if (channel) {
+          setShowNewChat(false)
+          navigation.navigate('Chat', { channel })
+        }
+      }
     } catch (error) {
       Alert.alert('Error', error.message)
     } finally {
@@ -94,8 +153,12 @@ export default function ChatsListScreen({ navigation }) {
     return `${senderName}: ${text.length > 40 ? text.substring(0, 40) + '...' : text}`
   }
 
+  const filteredUsers = users.filter((u) =>
+    u.display_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    u.id?.toLowerCase().includes(searchQuery.toLowerCase())
+  )
+
   const renderChannel = ({ item }) => {
-    const isOnline = item.is_group ? false : onlineUsers[item.id]
     return (
       <TouchableOpacity
         style={styles.channelItem}
@@ -128,6 +191,38 @@ export default function ChatsListScreen({ navigation }) {
     )
   }
 
+  const renderUser = ({ item }) => {
+    const isSelected = selectedUsers.includes(item.id)
+    const isOnline =
+      item.last_seen &&
+      Date.now() - new Date(item.last_seen).getTime() < RECENT_THRESHOLD
+
+    return (
+      <TouchableOpacity
+        style={[styles.userItem, isSelected && styles.userItemSelected]}
+        onPress={() => toggleUser(item.id)}
+      >
+        <View style={styles.userAvatarContainer}>
+          <View style={[styles.userAvatar, isSelected && styles.userAvatarSelected]}>
+            <Text style={styles.userAvatarText}>
+              {item.display_name?.charAt(0).toUpperCase() || '?'}
+            </Text>
+          </View>
+          {isOnline && <View style={styles.onlineDot} />}
+        </View>
+        <View style={styles.userInfo}>
+          <Text style={styles.userName}>{item.display_name || 'Unknown'}</Text>
+          <Text style={styles.userStatus}>
+            {isOnline ? 'Online' : 'Offline'}
+          </Text>
+        </View>
+        <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+          {isSelected && <Ionicons name="checkmark" size={16} color="#fff" />}
+        </View>
+      </TouchableOpacity>
+    )
+  }
+
   return (
     <View style={styles.container}>
       <FlatList
@@ -137,6 +232,7 @@ export default function ChatsListScreen({ navigation }) {
         contentContainerStyle={channels.length === 0 ? styles.emptyContainer : styles.list}
         ListEmptyComponent={
           <View style={styles.emptyState}>
+            <Ionicons name="chatbubbles-outline" size={64} color="#333" />
             <Text style={styles.emptyTitle}>No conversations yet</Text>
             <Text style={styles.emptyText}>Tap + to start a new chat</Text>
           </View>
@@ -148,51 +244,136 @@ export default function ChatsListScreen({ navigation }) {
       {/* Floating action button */}
       <TouchableOpacity
         style={styles.fab}
-        onPress={() => setShowNewChannel(true)}
+        onPress={openNewChat}
       >
-        <Text style={styles.fabText}>+</Text>
+        <Ionicons name="add" size={28} color="#fff" />
       </TouchableOpacity>
 
-      {/* New Channel Modal */}
+      {/* New Chat Modal */}
       <Modal
-        visible={showNewChannel}
+        visible={showNewChat}
         transparent
         animationType="slide"
-        onRequestClose={() => setShowNewChannel(false)}
+        onRequestClose={() => setShowNewChat(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>New Channel</Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="Channel name"
-              placeholderTextColor="#666"
-              value={newChannelName}
-              onChangeText={setNewChannelName}
-              autoFocus
-            />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => {
-                  setNewChannelName('')
-                  setShowNewChannel(false)
-                }}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.createButton]}
-                onPress={handleCreateChannel}
-                disabled={creating}
-              >
-                {creating ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <Text style={styles.createButtonText}>Create</Text>
-                )}
+            {/* Header */}
+            <View style={styles.newChatHeader}>
+              <Text style={styles.newChatTitle}>
+                {showGroupNameInput ? 'Name Your Group' : 'New Chat'}
+              </Text>
+              <TouchableOpacity onPress={() => setShowNewChat(false)}>
+                <Ionicons name="close" size={24} color="#888" />
               </TouchableOpacity>
             </View>
+
+            {showGroupNameInput ? (
+              <>
+                <Text style={styles.newChatSubtitle}>
+                  {selectedUsers.length + 1} members will be in this group
+                </Text>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="Group name (optional)"
+                  placeholderTextColor="#666"
+                  value={groupName}
+                  onChangeText={setGroupName}
+                  autoFocus
+                  maxLength={50}
+                />
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.cancelButton]}
+                    onPress={() => {
+                      setShowGroupNameInput(false)
+                      setGroupName('')
+                    }}
+                  >
+                    <Text style={styles.cancelButtonText}>Back</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.modalButton, styles.createButton]}
+                    onPress={handleCreateChat}
+                    disabled={creating}
+                  >
+                    {creating ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={styles.createButtonText}>Create Group</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </>
+            ) : (
+              <>
+                {/* Search */}
+                <View style={styles.searchContainer}>
+                  <Ionicons name="search" size={18} color="#666" style={styles.searchIcon} />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search users..."
+                    placeholderTextColor="#666"
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {searchQuery.length > 0 && (
+                    <TouchableOpacity onPress={() => setSearchQuery('')}>
+                      <Ionicons name="close-circle" size={18} color="#666" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* User list */}
+                {usersLoading ? (
+                  <View style={styles.usersLoading}>
+                    <ActivityIndicator color="#6c63ff" size="large" />
+                  </View>
+                ) : (
+                  <FlatList
+                    data={filteredUsers}
+                    keyExtractor={(item) => item.id}
+                    renderItem={renderUser}
+                    style={styles.userList}
+                    ListEmptyComponent={
+                      <View style={styles.noUsers}>
+                        <Ionicons name="people-outline" size={40} color="#444" />
+                        <Text style={styles.noUsersText}>
+                          {searchQuery ? 'No users found' : 'No other users yet'}
+                        </Text>
+                      </View>
+                    }
+                  />
+                )}
+
+                {/* Bottom bar */}
+                <View style={styles.bottomBar}>
+                  <Text style={styles.selectedCount}>
+                    {selectedUsers.length > 0
+                      ? `${selectedUsers.length} user${selectedUsers.length > 1 ? 's' : ''} selected`
+                      : 'Select users to chat with'}
+                  </Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.startChatButton,
+                      selectedUsers.length === 0 && styles.startChatButtonDisabled,
+                    ]}
+                    onPress={handleCreateChat}
+                    disabled={selectedUsers.length === 0 || creating}
+                  >
+                    {creating ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={styles.startChatButtonText}>
+                        {selectedUsers.length > 1 ? 'Create Group' : 'Start Chat'}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -268,6 +449,7 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '600',
     marginBottom: 8,
+    marginTop: 16,
   },
   emptyText: {
     color: '#888',
@@ -290,28 +472,174 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
   },
-  fabText: {
-    color: '#fff',
-    fontSize: 28,
-    fontWeight: '300',
-    lineHeight: 30,
-  },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
   },
   modalContent: {
     backgroundColor: '#16213e',
-    borderRadius: 16,
-    padding: 24,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '85%',
+    minHeight: '60%',
+    paddingTop: 20,
+    paddingBottom: 34,
   },
-  modalTitle: {
+  newChatHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
+  newChatTitle: {
     color: '#fff',
     fontSize: 20,
+    fontWeight: '700',
+  },
+  newChatSubtitle: {
+    color: '#888',
+    fontSize: 14,
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a1a2e',
+    borderRadius: 10,
+    marginHorizontal: 20,
+    marginBottom: 12,
+    paddingHorizontal: 12,
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#2a2a4a',
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 15,
+    padding: 0,
+  },
+  userList: {
+    flex: 1,
+    paddingHorizontal: 20,
+  },
+  userItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    marginBottom: 4,
+  },
+  userItemSelected: {
+    backgroundColor: 'rgba(108, 99, 255, 0.15)',
+  },
+  userAvatarContainer: {
+    position: 'relative',
+    marginRight: 12,
+  },
+  userAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#2a2a4a',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userAvatarSelected: {
+    backgroundColor: '#6c63ff',
+  },
+  userAvatarText: {
+    color: '#fff',
+    fontSize: 18,
     fontWeight: '600',
-    marginBottom: 20,
+  },
+  onlineDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#2ecc71',
+    borderWidth: 2,
+    borderColor: '#16213e',
+  },
+  userInfo: {
+    flex: 1,
+  },
+  userName: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  userStatus: {
+    color: '#666',
+    fontSize: 13,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#444',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxSelected: {
+    backgroundColor: '#6c63ff',
+    borderColor: '#6c63ff',
+  },
+  usersLoading: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noUsers: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  noUsersText: {
+    color: '#555',
+    fontSize: 15,
+    marginTop: 12,
+  },
+  bottomBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    borderTopWidth: 0.5,
+    borderTopColor: '#2a2a4a',
+  },
+  selectedCount: {
+    color: '#888',
+    fontSize: 13,
+    flex: 1,
+  },
+  startChatButton: {
+    backgroundColor: '#6c63ff',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  startChatButtonDisabled: {
+    opacity: 0.4,
+  },
+  startChatButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
   },
   modalInput: {
     backgroundColor: '#1a1a2e',
@@ -321,12 +649,14 @@ const styles = StyleSheet.create({
     color: '#fff',
     borderWidth: 1,
     borderColor: '#2a2a4a',
+    marginHorizontal: 20,
     marginBottom: 20,
   },
   modalButtons: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 12,
+    paddingHorizontal: 20,
   },
   modalButton: {
     paddingVertical: 10,

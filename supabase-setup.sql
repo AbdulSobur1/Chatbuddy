@@ -102,22 +102,72 @@ create policy "Members can create channels"
   to authenticated
   with check (true);
 
+-- Create a security definer function to check channel membership
+-- This avoids infinite recursion in RLS policies
+create or replace function public.is_channel_member(channel_id uuid)
+returns boolean
+language sql
+security definer
+as $$
+  select exists (
+    select 1 from public.channel_members
+    where channel_members.channel_id = $1
+      and channel_members.user_id = auth.uid()
+  );
+$$;
+
 -- CHANNEL MEMBERS: can read if you're a member, can insert if creating
 create policy "Members can view channel_members"
   on public.channel_members for select
   to authenticated
-  using (
-    exists (
-      select 1 from public.channel_members cm
-      where cm.channel_id = channel_members.channel_id
-        and cm.user_id = auth.uid()
-    )
-  );
+  using (public.is_channel_member(channel_id));
 
 create policy "Members can add themselves"
   on public.channel_members for insert
   to authenticated
   with check (user_id = auth.uid());
+
+-- Also update other policies that reference channel_members to use the function
+-- to avoid potential cascading recursion
+
+drop policy if exists "Members can view channels" on public.channels;
+create policy "Members can view channels"
+  on public.channels for select
+  to authenticated
+  using (public.is_channel_member(id));
+
+drop policy if exists "Members can view messages" on public.messages;
+create policy "Members can view messages"
+  on public.messages for select
+  to authenticated
+  using (
+    exists (
+      select 1 from public.channel_members
+      where channel_id = messages.channel_id
+        and user_id = auth.uid()
+    )
+  );
+
+drop policy if exists "Members can insert messages" on public.messages;
+create policy "Members can insert messages"
+  on public.messages for insert
+  to authenticated
+  with check (
+    sender_id = auth.uid()
+    and public.is_channel_member(channel_id)
+  );
+
+drop policy if exists "Members can view reactions" on public.message_reactions;
+create policy "Members can view reactions"
+  on public.message_reactions for select
+  to authenticated
+  using (
+    exists (
+      select 1 from public.messages m
+      where m.id = message_reactions.message_id
+        and public.is_channel_member(m.channel_id)
+    )
+  );
 
 -- MESSAGES: read if in channel, insert as self in joined channels
 create policy "Members can view messages"
