@@ -35,7 +35,8 @@
         {
           "iCloudContainerEnvironment": "Production"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "supabaseUrl": "https://pfidvejfnssiioxtvqed.supabase.co",
