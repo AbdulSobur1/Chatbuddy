@@ -27,7 +27,6 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-av",
       "expo-image-picker",
       "expo-notifications",
       [
@@ -36,7 +35,9 @@
           "iCloudContainerEnvironment": "Production"
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-audio",
+      "expo-asset"
     ],
     "extra": {
       "supabaseUrl": "https://pfidvejfnssiioxtvqed.supabase.co",

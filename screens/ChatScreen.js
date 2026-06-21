@@ -6,7 +6,7 @@ import {
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
 import * as DocumentPicker from 'expo-document-picker'
-import { Audio } from 'expo-av'
+import { useAudioRecorder, requestRecordingPermissionsAsync, setAudioModeAsync, RecordingPresets } from 'expo-audio'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuthStore, useMessagesStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
@@ -29,8 +29,8 @@ export default function ChatScreen({ route, navigation }) {
   const [showReactions, setShowReactions] = useState(false)
   const [showEditModal, setShowEditModal] = useState(false)
   const [editText, setEditText] = useState('')
-  const [recording, setRecording] = useState(null)
   const [isRecording, setIsRecording] = useState(false)
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY)
 
   const messages = messagesByChannel[channel.id] || []
   const flatListRef = useRef(null)
@@ -120,21 +120,19 @@ export default function ChatScreen({ route, navigation }) {
 
   const startRecording = async () => {
     try {
-      const { granted } = await Audio.requestPermissionsAsync()
+      const { granted } = await requestRecordingPermissionsAsync()
       if (!granted) {
         Alert.alert('Permission needed', 'Microphone access is required for voice notes')
         return
       }
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       })
 
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      )
-      setRecording(recording)
+      await recorder.prepareToRecordAsync()
+      recorder.record()
       setIsRecording(true)
     } catch (error) {
       Alert.alert('Recording Error', error.message)
@@ -142,13 +140,17 @@ export default function ChatScreen({ route, navigation }) {
   }
 
   const stopRecording = async () => {
-    if (!recording) return
+    if (!recorder.isRecording) return
     setIsRecording(false)
     setSending(true)
     try {
-      await recording.stopAndUnloadAsync()
-      const uri = recording.getURI()
-      setRecording(null)
+      await recorder.stop()
+      const uri = recorder.uri
+
+      if (!uri) {
+        Alert.alert('Error', 'Failed to get recording')
+        return
+      }
 
       const publicUrl = await uploadFile(uri, `voice-${Date.now()}.m4a`)
       await sendMessage(channel.id, '🎤 Voice note', publicUrl, replyTo?.id)
