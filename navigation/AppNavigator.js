@@ -6,6 +6,7 @@ import { ActivityIndicator, View, Platform } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
 import { useAuthStore } from '../lib/store'
+import { navigationRef } from '../lib/navigation'
 
 // Auth screens
 import LoginScreen from '../screens/LoginScreen'
@@ -209,7 +210,7 @@ export default function AppNavigator() {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       {session ? <MainTabs /> : <AuthStack />}
     </NavigationContainer>
   )

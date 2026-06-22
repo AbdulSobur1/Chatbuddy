@@ -4,6 +4,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import AppNavigator from './navigation/AppNavigator'
 import { useAuthStore } from './lib/store'
 import { supabase } from './lib/supabase'
+import { registerForPushNotifications, addNotificationTapListener } from './lib/notifications'
 
 export default function App() {
   const loadSession = useAuthStore((s) => s.loadSession)
@@ -13,10 +14,25 @@ export default function App() {
     loadSession()
   }, [])
 
+  // ─── Push notification setup ──────────────────────────────
   useEffect(() => {
     if (!user) return
 
-    // Update last_seen every 60 seconds
+    // Register for push notifications
+    registerForPushNotifications(user.id)
+
+    // Handle notification taps
+    const subscription = addNotificationTapListener()
+
+    return () => {
+      if (subscription) subscription.remove()
+    }
+  }, [user])
+
+  // ─── Update last_seen every 60 seconds ────────────────────
+  useEffect(() => {
+    if (!user) return
+
     const updateLastSeen = async () => {
       await supabase
         .from('users')

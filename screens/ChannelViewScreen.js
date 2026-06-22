@@ -123,22 +123,24 @@ export default function ChannelViewScreen({ route, navigation }) {
         </View>
       )}
 
-      {/* Messages */}
       {loading ? (
         <View style={styles.center}><ActivityIndicator size="large" color="#6c63ff" /></View>
       ) : (
-        <FlatList
-          data={messages}
-          keyExtractor={(item) => item.id}
-          renderItem={renderMessage}
-          contentContainerStyle={messages.length === 0 && styles.center}
-          ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <Ionicons name="megaphone-outline" size={48} color="#444" />
-              <Text style={styles.emptyText}>No posts yet</Text>
-            </View>
-          }
-        />
+        <View style={styles.messagesContainer}>
+          <FlatList
+            data={messages}
+            keyExtractor={(item) => item.id}
+            renderItem={renderMessage}
+            contentContainerStyle={messages.length === 0 ? styles.center : { paddingBottom: 16 }}
+            style={{ flex: 1 }}
+            ListEmptyComponent={
+              <View style={styles.emptyState}>
+                <Ionicons name="megaphone-outline" size={48} color="#444" />
+                <Text style={styles.emptyText}>No posts yet</Text>
+              </View>
+            }
+          />
+        </View>
       )}
 
       {/* Footer note */}
@@ -155,6 +157,7 @@ export default function ChannelViewScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#1a1a2e' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  messagesContainer: { flex: 1 },
   header: {
     flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8,
     paddingVertical: 12, backgroundColor: '#16213e',
