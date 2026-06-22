@@ -30,7 +30,23 @@ export default function ChatScreen({ route, navigation }) {
   const [showEditModal, setShowEditModal] = useState(false)
   const [editText, setEditText] = useState('')
   const [isRecording, setIsRecording] = useState(false)
+  const [otherUserId, setOtherUserId] = useState(null)
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY)
+
+  // Fetch the other user ID for DMs (to log calls)
+  useEffect(() => {
+    if (channel.channel_type !== 'dm') return
+    const fetchOtherMember = async () => {
+      const { data } = await supabase
+        .from('channel_members')
+        .select('user_id')
+        .eq('channel_id', channel.id)
+        .neq('user_id', user.id)
+        .single()
+      if (data) setOtherUserId(data.user_id)
+    }
+    fetchOtherMember()
+  }, [channel.id, user])
 
   const messages = messagesByChannel[channel.id] || []
   const flatListRef = useRef(null)
@@ -209,6 +225,29 @@ export default function ChatScreen({ route, navigation }) {
     setShowActions(false)
   }
 
+  const startCall = async (callType) => {
+    if (!otherUserId) {
+      Alert.alert('Error', 'Cannot initiate call — no other user found')
+      return
+    }
+    try {
+      const { error } = await supabase.from('calls').insert({
+        channel_id: channel.id,
+        caller_id: user.id,
+        receiver_id: otherUserId,
+        call_type: callType,
+        status: 'outgoing',
+      })
+      if (error) throw error
+      Alert.alert(
+        `${callType === 'audio' ? 'Audio' : 'Video'} Call Started`,
+        'Call logged! Check the Calls tab for history.'
+      )
+    } catch (error) {
+      Alert.alert('Call Error', error.message)
+    }
+  }
+
   const formatTime = (dateStr) => {
     const date = new Date(dateStr)
     const now = new Date()
@@ -341,7 +380,23 @@ export default function ChatScreen({ route, navigation }) {
             {channel.channel_type === 'group' ? 'Group' : 'Direct Message'}
           </Text>
         </View>
-        {channel.is_group && (
+        {channel.channel_type === 'dm' && (
+          <View style={styles.headerCallButtons}>
+            <TouchableOpacity
+              style={styles.headerButton}
+              onPress={() => startCall('audio')}
+            >
+              <Ionicons name="call-outline" size={22} color="#2ecc71" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.headerButton}
+              onPress={() => startCall('video')}
+            >
+              <Ionicons name="videocam-outline" size={22} color="#6c63ff" />
+            </TouchableOpacity>
+          </View>
+        )}
+        {channel.channel_type === 'group' && (
           <TouchableOpacity
             style={styles.headerButton}
             onPress={() => navigation.navigate('GroupInfo', { channel })}
@@ -585,6 +640,12 @@ const styles = StyleSheet.create({
   },
   headerButton: {
     padding: 8,
+  },
+  headerCallButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginRight: 4,
   },
   messagesList: {
     paddingHorizontal: 16,

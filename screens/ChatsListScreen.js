@@ -21,6 +21,7 @@ export default function ChatsListScreen({ navigation }) {
   const [creating, setCreating] = useState(false)
   const [onlineUsers, setOnlineUsers] = useState({})
   const [lastMessages, setLastMessages] = useState({})
+  const [otherUsers, setOtherUsers] = useState({})
 
   useFocusEffect(
     useCallback(() => {
@@ -67,6 +68,27 @@ export default function ChatsListScreen({ navigation }) {
 
     setChannels(dmChannels)
     setLoading(false)
+
+    // Fetch the other user for each DM
+    fetchOtherUsers(dmChannels)
+  }
+
+  const fetchOtherUsers = async (dmChannels) => {
+    if (!user || dmChannels.length === 0) return
+    const channelIds = dmChannels.map((c) => c.id)
+    const { data: channelMembers } = await supabase
+      .from('channel_members')
+      .select('channel_id, user_id, user:user_id(display_name)')
+      .in('channel_id', channelIds)
+      .neq('user_id', user.id)
+
+    if (channelMembers) {
+      const otherMap = {}
+      channelMembers.forEach((cm) => {
+        otherMap[cm.channel_id] = cm.user
+      })
+      setOtherUsers(otherMap)
+    }
   }
 
   // Fetch last message for each DM
@@ -194,6 +216,30 @@ export default function ChatsListScreen({ navigation }) {
     u.display_name?.toLowerCase().includes(searchQuery.toLowerCase())
   )
 
+  const initiateCallFromDM = async (channel, callType) => {
+    const otherUser = otherUsers[channel.id]
+    if (!otherUser?.id) {
+      Alert.alert('Error', 'Could not identify the other user')
+      return
+    }
+    try {
+      const { error } = await supabase.from('calls').insert({
+        channel_id: channel.id,
+        caller_id: user.id,
+        receiver_id: otherUser.id,
+        call_type: callType,
+        status: 'outgoing',
+      })
+      if (error) throw error
+      Alert.alert(
+        `${callType === 'audio' ? 'Audio' : 'Video'} Call Started`,
+        'Call logged! Check the Calls tab for history.'
+      )
+    } catch (error) {
+      Alert.alert('Call Error', error.message)
+    }
+  }
+
   const renderChannel = ({ item }) => (
     <TouchableOpacity
       style={styles.channelItem}
@@ -221,6 +267,20 @@ export default function ChatsListScreen({ navigation }) {
             })}
           </Text>
         )}
+        <View style={styles.callIcons}>
+          <TouchableOpacity
+            style={styles.callIconBtn}
+            onPress={() => initiateCallFromDM(item, 'audio')}
+          >
+            <Ionicons name="call-outline" size={18} color="#2ecc71" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.callIconBtn}
+            onPress={() => initiateCallFromDM(item, 'video')}
+          >
+            <Ionicons name="videocam-outline" size={18} color="#6c63ff" />
+          </TouchableOpacity>
+        </View>
       </View>
     </TouchableOpacity>
   )
@@ -351,6 +411,15 @@ const styles = StyleSheet.create({
   lastMessage: { color: '#888', fontSize: 14 },
   metaContainer: { alignItems: 'flex-end', marginLeft: 8 },
   timeText: { color: '#666', fontSize: 12 },
+  callIcons: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  callIconBtn: {
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    justifyContent: 'center', alignItems: 'center',
+  },
   emptyState: {
     flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32,
   },
