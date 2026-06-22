@@ -7,6 +7,7 @@ import { useAuthStore } from '../lib/store'
 
 export default function RegisterScreen({ navigation }) {
   const [displayName, setDisplayName] = useState('')
+  const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -14,8 +15,12 @@ export default function RegisterScreen({ navigation }) {
   const signUp = useAuthStore((s) => s.signUp)
 
   const handleRegister = async () => {
-    if (!displayName.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
+    if (!displayName.trim() || !username.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
       Alert.alert('Error', 'Please fill in all fields')
+      return
+    }
+    if (!/^[a-zA-Z][a-zA-Z0-9_]{1,19}$/.test(username.trim())) {
+      Alert.alert('Error', 'Username must start with a letter and contain only letters, numbers, and underscores (2-20 chars)')
       return
     }
     if (password !== confirmPassword) {
@@ -29,7 +34,7 @@ export default function RegisterScreen({ navigation }) {
 
     setLoading(true)
     try {
-      await signUp(email.trim(), password, displayName.trim())
+      await signUp(email.trim(), password, displayName.trim(), username.trim())
       Alert.alert(
         'Account Created',
         'You can now sign in with your credentials.',
@@ -61,6 +66,24 @@ export default function RegisterScreen({ navigation }) {
             onChangeText={setDisplayName}
             autoCapitalize="words"
           />
+        </View>
+
+        <View style={styles.inputContainer}>
+          <Text style={styles.label}>Username</Text>
+          <View style={styles.usernameInputContainer}>
+            <Text style={styles.usernamePrefix}>@</Text>
+            <TextInput
+              style={styles.usernameInput}
+              placeholder="username"
+              placeholderTextColor="#666"
+              value={username}
+              onChangeText={(v) => setUsername(v.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+              autoCapitalize="none"
+              autoCorrect={false}
+              maxLength={20}
+            />
+          </View>
+          <Text style={styles.fieldHint}>Letters, numbers, and underscores. Your unique @handle.</Text>
         </View>
 
         <View style={styles.inputContainer}>
@@ -164,6 +187,33 @@ const styles = StyleSheet.create({
     color: '#fff',
     borderWidth: 1,
     borderColor: '#2a2a4a',
+  },
+  usernameInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16213e',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2a2a4a',
+  },
+  usernamePrefix: {
+    color: '#888',
+    fontSize: 16,
+    paddingLeft: 14,
+    fontWeight: '500',
+  },
+  usernameInput: {
+    flex: 1,
+    padding: 14,
+    paddingLeft: 6,
+    fontSize: 16,
+    color: '#fff',
+  },
+  fieldHint: {
+    color: '#666',
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 2,
   },
   button: {
     backgroundColor: '#6c63ff',

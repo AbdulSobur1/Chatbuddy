@@ -106,23 +106,27 @@ export default function ChatsListScreen({ navigation }) {
     })
   }, [channels])
 
-  const openNewChat = async () => {
-    setShowNewChat(true)
-    setSearchQuery('')
-    await fetchUsers()
-  }
-
-  const fetchUsers = async () => {
-    if (!user) return
+  const searchUsersByUsername = async (query) => {
+    if (!user || query.length < 2) {
+      setUsers([])
+      return
+    }
     setUsersLoading(true)
     const { data, error } = await supabase
       .from('users')
-      .select('id, display_name, avatar_url, last_seen')
+      .select('id, display_name, username, avatar_url, last_seen')
       .neq('id', user.id)
-      .order('display_name')
-    if (error) console.error('fetchUsers error:', error)
+      .ilike('username', `%${query.toLowerCase()}%`)
+      .limit(20)
+    if (error) console.error('searchUsers error:', error)
     else setUsers(data || [])
     setUsersLoading(false)
+  }
+
+  const openNewChat = async () => {
+    setShowNewChat(true)
+    setSearchQuery('')
+    setUsers([])
   }
 
   const startDM = async (otherUserId) => {
@@ -212,9 +216,7 @@ export default function ChatsListScreen({ navigation }) {
     return `${senderName}: ${text.length > 40 ? text.substring(0, 40) + '...' : text}`
   }
 
-  const filteredUsers = users.filter((u) =>
-    u.display_name?.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const filteredUsers = users
 
   const initiateCallFromDM = async (channel, callType) => {
     const otherUser = otherUsers[channel.id]
@@ -300,8 +302,8 @@ export default function ChatsListScreen({ navigation }) {
           </View>
           {isOnline && <View style={styles.onlineDot} />}
         </View>
-        <View style={styles.userInfo}>
-          <Text style={styles.userName}>{item.display_name || 'Unknown'}</Text>
+        <View style={styles.userInfo}>            <Text style={styles.userName}>{item.display_name || 'Unknown'}</Text>
+          <Text style={styles.userHandle}>@{item.username || 'unknown'}</Text>
           <Text style={styles.userStatus}>{isOnline ? 'Online' : 'Offline'}</Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color="#444" />
@@ -351,15 +353,18 @@ export default function ChatsListScreen({ navigation }) {
               <Ionicons name="search" size={18} color="#666" style={styles.searchIcon} />
               <TextInput
                 style={styles.searchInput}
-                placeholder="Search users..."
+                placeholder="Search by @username..."
                 placeholderTextColor="#666"
                 value={searchQuery}
-                onChangeText={setSearchQuery}
+                onChangeText={(v) => {
+                setSearchQuery(v)
+                searchUsersByUsername(v)
+              }}
                 autoCapitalize="none"
                 autoCorrect={false}
               />
               {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <TouchableOpacity onPress={() => { setSearchQuery(''); setUsers([]) }}>
                   <Ionicons name="close-circle" size={18} color="#666" />
                 </TouchableOpacity>
               )}
@@ -379,7 +384,7 @@ export default function ChatsListScreen({ navigation }) {
                   <View style={styles.noUsers}>
                     <Ionicons name="people-outline" size={40} color="#444" />
                     <Text style={styles.noUsersText}>
-                      {searchQuery ? 'No users found' : 'No other users yet'}
+                      {searchQuery.length > 0 && searchQuery.length < 2 ? 'Type at least 2 characters...' : searchQuery ? 'No users found with that username' : 'Search by @username to find someone'}
                     </Text>
                   </View>
                 }
@@ -468,6 +473,7 @@ const styles = StyleSheet.create({
   userInfo: { flex: 1 },
   userName: { color: '#fff', fontSize: 15, fontWeight: '600', marginBottom: 2 },
   userStatus: { color: '#666', fontSize: 13 },
+  userHandle: { color: '#6c63ff', fontSize: 13, marginBottom: 2 },
   usersLoading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   noUsers: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 },
   noUsersText: { color: '#555', fontSize: 15, marginTop: 12 },

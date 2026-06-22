@@ -38,20 +38,28 @@ export default function CallsScreen({ navigation }) {
     setLoading(false)
   }
 
+  const searchUsersByUsername = async (query) => {
+    if (!user || query.length < 2) {
+      setUsers([])
+      return
+    }
+    setUsersLoading(true)
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, display_name, username, last_seen')
+      .neq('id', user.id)
+      .ilike('username', `%${query.toLowerCase()}%`)
+      .limit(20)
+    if (error) console.error('searchUsers error:', error)
+    else setUsers(data || [])
+    setUsersLoading(false)
+  }
+
   const openNewCall = async () => {
     setSearchQuery('')
     setCallType('audio')
     setShowNewCall(true)
-    if (!user) return
-    setUsersLoading(true)
-    const { data, error } = await supabase
-      .from('users')
-      .select('id, display_name, last_seen')
-      .neq('id', user.id)
-      .order('display_name')
-    if (error) console.error('fetchUsers error:', error)
-    else setUsers(data || [])
-    setUsersLoading(false)
+    setUsers([])
   }
 
   const initiateCall = async (otherUserId, type) => {
@@ -167,9 +175,7 @@ export default function CallsScreen({ navigation }) {
     )
   }
 
-  const filteredUsers = users.filter((u) =>
-    u.display_name?.toLowerCase().includes(searchQuery.toLowerCase())
-  )
+  const filteredUsers = users
 
   return (
     <View style={styles.container}>
@@ -235,10 +241,13 @@ export default function CallsScreen({ navigation }) {
               <Ionicons name="search" size={18} color="#666" style={{ marginRight: 8 }} />
               <TextInput
                 style={styles.searchInput}
-                placeholder="Search contacts..."
+                placeholder="Search by @username..."
                 placeholderTextColor="#666"
                 value={searchQuery}
-                onChangeText={setSearchQuery}
+                onChangeText={(v) => {
+                  setSearchQuery(v)
+                  searchUsersByUsername(v)
+                }}
                 autoCapitalize="none"
                 autoCorrect={false}
               />
@@ -263,6 +272,7 @@ export default function CallsScreen({ navigation }) {
                     </View>
                     <View style={styles.userInfo}>
                       <Text style={styles.userName}>{item.display_name || 'Unknown'}</Text>
+                      <Text style={styles.userHandle}>@{item.username || 'unknown'}</Text>
                     </View>
                     <Ionicons
                       name={callType === 'audio' ? 'call-outline' : 'videocam-outline'}
@@ -275,7 +285,7 @@ export default function CallsScreen({ navigation }) {
                   <View style={styles.noUsers}>
                     <Ionicons name="people-outline" size={40} color="#444" />
                     <Text style={styles.noUsersText}>
-                      {searchQuery ? 'No users found' : 'No contacts yet'}
+                      {searchQuery.length > 0 && searchQuery.length < 2 ? 'Type at least 2 characters...' : searchQuery ? 'No users found with that username' : 'Search by @username to find someone'}
                     </Text>
                   </View>
                 }
@@ -349,6 +359,7 @@ const styles = StyleSheet.create({
   userAvatarText: { color: '#fff', fontSize: 18, fontWeight: '600' },
   userInfo: { flex: 1 },
   userName: { color: '#fff', fontSize: 15, fontWeight: '500' },
+  userHandle: { color: '#6c63ff', fontSize: 13, marginTop: 2 },
   noUsers: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 },
   noUsersText: { color: '#555', fontSize: 15, marginTop: 12 },
 })

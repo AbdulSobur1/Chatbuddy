@@ -49,8 +49,9 @@ export default function GroupInfoScreen({ route, navigation }) {
     setSearching(true)
     const { data } = await supabase
       .from('users')
-      .select('id, display_name')
-      .ilike('display_name', `%${text}%`)
+      .select('id, display_name, username')
+      .neq('id', user.id)
+      .ilike('username', `%${text.toLowerCase()}%`)
       .limit(10)
     setSearchResults(data || [])
     setSearching(false)
@@ -227,7 +228,7 @@ export default function GroupInfoScreen({ route, navigation }) {
             <Text style={styles.modalTitle}>Add Member</Text>
             <TextInput
               style={styles.modalInput}
-              placeholder="Search by name..."
+              placeholder="Search by @username..."
               placeholderTextColor="#666"
               value={searchEmail}
               onChangeText={searchUsers}
@@ -247,7 +248,10 @@ export default function GroupInfoScreen({ route, navigation }) {
                       {item.display_name.charAt(0).toUpperCase()}
                     </Text>
                   </View>
-                  <Text style={styles.searchResultName}>{item.display_name}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.searchResultName}>{item.display_name}</Text>
+                    <Text style={styles.searchResultUsername}>@{item.username}</Text>
+                  </View>
                   <Ionicons name="add-circle" size={24} color="#6c63ff" />
                 </TouchableOpacity>
               )}
@@ -446,7 +450,11 @@ const styles = StyleSheet.create({
   searchResultName: {
     color: '#fff',
     fontSize: 15,
-    flex: 1,
+  },
+  searchResultUsername: {
+    color: '#6c63ff',
+    fontSize: 13,
+    marginTop: 2,
   },
   noResults: {
     color: '#888',

@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase'
 export default function ProfileScreen({ navigation }) {
   const user = useAuthStore((s) => s.user)
   const [displayName, setDisplayName] = useState('')
+  const [username, setUsername] = useState('')
   const [status, setStatus] = useState('')
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -32,6 +33,7 @@ export default function ProfileScreen({ navigation }) {
     } else if (data) {
       setProfile(data)
       setDisplayName(data.display_name || '')
+      setUsername(data.username || '')
       setStatus(data.status || '')
     }
     setLoading(false)
@@ -47,6 +49,7 @@ export default function ProfileScreen({ navigation }) {
       .from('users')
       .update({
         display_name: displayName.trim(),
+        username: username.trim().toLowerCase(),
         status: status.trim() || null,
       })
       .eq('id', user.id)
@@ -88,6 +91,24 @@ export default function ProfileScreen({ navigation }) {
             placeholder="Your display name"
             placeholderTextColor="#666"
           />
+        </View>
+
+        <View style={styles.inputGroup}>
+          <Text style={styles.label}>Username</Text>
+          <View style={styles.usernameInputContainer}>
+            <Text style={styles.usernamePrefix}>@</Text>
+            <TextInput
+              style={styles.usernameInput}
+              value={username}
+              onChangeText={(v) => setUsername(v.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
+              placeholder="username"
+              placeholderTextColor="#666"
+              autoCapitalize="none"
+              autoCorrect={false}
+              maxLength={20}
+            />
+          </View>
+          <Text style={styles.fieldHint}>Your unique @handle. Others will find you by this.</Text>
         </View>
 
         <View style={styles.inputGroup}>
@@ -173,6 +194,33 @@ const styles = StyleSheet.create({
     color: '#fff',
     borderWidth: 1,
     borderColor: '#2a2a4a',
+  },
+  usernameInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#16213e',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2a2a4a',
+  },
+  usernamePrefix: {
+    color: '#888',
+    fontSize: 16,
+    paddingLeft: 14,
+    fontWeight: '500',
+  },
+  usernameInput: {
+    flex: 1,
+    padding: 14,
+    paddingLeft: 6,
+    fontSize: 16,
+    color: '#fff',
+  },
+  fieldHint: {
+    color: '#666',
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 2,
   },
   saveButton: {
     backgroundColor: '#6c63ff',
