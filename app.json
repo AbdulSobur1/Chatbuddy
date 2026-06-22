@@ -19,7 +19,13 @@
       "package": "com.chatbuddy.app",
       "permissions": [
         "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ]
     },
     "web": {
@@ -46,6 +52,12 @@
         "projectId": "ba427c6b-3ad0-4559-9591-5288e5859391"
       }
     },
-    "owner": "abdulsobur1"
+    "owner": "abdulsobur1",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/ba427c6b-3ad0-4559-9591-5288e5859391"
+    }
   }
 }

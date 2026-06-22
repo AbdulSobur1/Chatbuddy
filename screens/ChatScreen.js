@@ -92,7 +92,7 @@ export default function ChatScreen({ route, navigation }) {
 
   const handleImagePick = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      mediaTypes: ['images', 'videos'],
       quality: 0.8,
     })
     if (result.canceled) return
@@ -338,7 +338,7 @@ export default function ChatScreen({ route, navigation }) {
         <View style={styles.headerInfo}>
           <Text style={styles.headerTitle}>{channel.name}</Text>
           <Text style={styles.headerSubtitle}>
-            {channel.is_group ? 'Group' : 'Direct Message'}
+            {channel.channel_type === 'group' ? 'Group' : 'Direct Message'}
           </Text>
         </View>
         {channel.is_group && (
