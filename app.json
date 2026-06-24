@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "ChatBuddy",
-    "slug": "ChatBuddy",
+    "slug": "chatbuddy",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -18,10 +18,6 @@
       },
       "package": "com.chatbuddy.app",
       "permissions": [
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS",
-        "android.permission.FOREGROUND_SERVICE",
-        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
@@ -46,8 +42,6 @@
       "expo-asset"
     ],
     "extra": {
-      "supabaseUrl": "https://pfidvejfnssiioxtvqed.supabase.co",
-      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBmaWR2ZWpmbnNzaWlveHR2cWVkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIwNDM1ODcsImV4cCI6MjA5NzYxOTU4N30.5OGfszXV-wtz__PWDnVw7ykx-UItyj_HzOlzfNFmm84",
       "eas": {
         "projectId": "ba427c6b-3ad0-4559-9591-5288e5859391"
       }

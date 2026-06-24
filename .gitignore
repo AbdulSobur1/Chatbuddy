@@ -31,11 +31,15 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
 
 # typescript
 *.tsbuildinfo
 
+# Windows reserved device names
+nul
+
 # generated native folders
-/ios
-/android
+/ios/android
+

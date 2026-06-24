@@ -320,9 +320,12 @@ create policy "Users can view status"
     user_id = auth.uid()
     or exists (
       select 1 from public.channel_members cm
-      join public.channels c on c.id = cm.channel_id
-      where cm.user_id = auth.uid()
-        and cm.user_id = status_updates.user_id
+      where cm.user_id = status_updates.user_id
+        and exists (
+          select 1 from public.channel_members cm2
+          where cm2.channel_id = cm.channel_id
+            and cm2.user_id = auth.uid()
+        )
     )
   );
 
