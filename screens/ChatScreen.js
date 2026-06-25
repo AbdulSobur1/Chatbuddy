@@ -33,40 +33,79 @@ export default function ChatScreen({ route, navigation }) {
   const [showEditModal, setShowEditModal] = useState(false)
   const [editText, setEditText] = useState('')
   const [isRecording, setIsRecording] = useState(false)
-  const [otherUserId, setOtherUserId] = useState(null)
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY)
-
-  // Fetch the other user ID for DMs (to log calls)
-  useEffect(() => {
-    if (channel.channel_type !== 'dm') return
-    const fetchOtherMember = async () => {
-      const { data } = await supabase
-        .from('channel_members')
-        .select('user_id')
-        .eq('channel_id', channel.id)
-        .neq('user_id', user.id)
-        .single()
-      if (data) setOtherUserId(data.user_id)
-    }
-    fetchOtherMember()
-  }, [channel.id, user])
 
   const messages = messagesByChannel[channel.id] || []
   const flatListRef = useRef(null)
   const typingTimeoutRef = useRef(null)
   const typingChannelRef = useRef(null)
+  const typingTimersRef = useRef({})
+  const [typingUserIds, setTypingUserIds] = useState(new Set())
+  const [otherUserInfo, setOtherUserInfo] = useState({ id: null, name: '' })
+
+  // Fetch the other user's info for DMs (both ID and name in one query)
+  useEffect(() => {
+    if (channel.channel_type !== 'dm') return
+    const fetchOther = async () => {
+      const { data } = await supabase
+        .from('channel_members')
+        .select('user_id, user:user_id(display_name)')
+        .eq('channel_id', channel.id)
+        .neq('user_id', user.id)
+        .maybeSingle()
+      if (data) {
+        setOtherUserInfo({
+          id: data.user_id,
+          name: data.user?.display_name || '',
+        })
+      }
+    }
+    fetchOther()
+  }, [channel.id, user])
 
   useEffect(() => {
     fetchMessages(channel.id)
     subscribeToChannel(channel.id)
 
-    // Typing indicator channel
+    // Typing indicator channel — listen & broadcast
     typingChannelRef.current = supabase.channel(`typing:${channel.id}`, {
       config: { broadcast: { self: true } },
     })
-    typingChannelRef.current.subscribe()
+
+    typingChannelRef.current
+      .on('broadcast', { event: 'typing' }, ({ payload }) => {
+        if (payload.userId === user.id) return // ignore self
+        setTypingUserIds((prev) => {
+          const next = new Set(prev)
+          next.add(payload.userId)
+          return next
+        })
+        // Auto-dismiss after 3s if no stop_typing received
+        clearTimeout(typingTimersRef.current[payload.userId])
+        typingTimersRef.current[payload.userId] = setTimeout(() => {
+          setTypingUserIds((prev) => {
+            const next = new Set(prev)
+            next.delete(payload.userId)
+            return next
+          })
+        }, 3000)
+      })
+      .on('broadcast', { event: 'stop_typing' }, ({ payload }) => {
+        if (payload.userId === user.id) return
+        clearTimeout(typingTimersRef.current[payload.userId])
+        delete typingTimersRef.current[payload.userId]
+        setTypingUserIds((prev) => {
+          const next = new Set(prev)
+          next.delete(payload.userId)
+          return next
+        })
+      })
+      .subscribe()
 
     return () => {
+      // Clear all typing timers
+      Object.values(typingTimersRef.current).forEach(clearTimeout)
+      typingTimersRef.current = {}
       unsubscribeFromChannel(channel.id)
       if (typingChannelRef.current) {
         supabase.removeChannel(typingChannelRef.current)
@@ -229,7 +268,7 @@ export default function ChatScreen({ route, navigation }) {
   }
 
   const startCall = async (callType) => {
-    if (!otherUserId) {
+    if (!otherUserInfo.id) {
       toast.show('Cannot initiate call — no other user found', 'error')
       return
     }
@@ -237,7 +276,7 @@ export default function ChatScreen({ route, navigation }) {
       const { error } = await supabase.from('calls').insert({
         channel_id: channel.id,
         caller_id: user.id,
-        receiver_id: otherUserId,
+        receiver_id: otherUserInfo.id,
         call_type: callType,
         status: 'outgoing',
       })
@@ -409,6 +448,22 @@ export default function ChatScreen({ route, navigation }) {
           <TouchableOpacity onPress={() => setReplyTo(null)}>
             <Ionicons name="close-circle" size={22} color={colors.textMuted} />
           </TouchableOpacity>
+        </View>
+      )}
+
+      {/* Typing Indicator */}
+      {typingUserIds.size > 0 && (
+        <View style={styles.typingIndicator}>
+          <View style={styles.typingDots}>
+            <View style={styles.typingDot} />
+            <View style={styles.typingDot} />
+            <View style={styles.typingDot} />
+          </View>
+          <Text style={styles.typingText}>
+            {channel.channel_type === 'dm'
+              ? `${otherUserInfo.name || 'Someone'} is typing...`
+              : `${typingUserIds.size} ${typingUserIds.size === 1 ? 'person' : 'people'} typing...`}
+          </Text>
         </View>
       )}
 
@@ -735,6 +790,35 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     fontSize: 13,
     flex: 1,
+  },
+
+  // ── Typing Indicator ────────────────────────────────
+  typingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    backgroundColor: colors.surface,
+    borderTopWidth: 0.5,
+    borderTopColor: colors.border,
+    gap: 8,
+  },
+  typingDots: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  typingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.primary,
+    opacity: 0.6,
+  },
+  typingText: {
+    color: colors.textMuted,
+    fontSize: 13,
+    fontStyle: 'italic',
   },
   inputBar: {
     flexDirection: 'row',
