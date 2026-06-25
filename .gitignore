@@ -40,6 +40,9 @@ yarn-error.*
 # Windows reserved device names
 nul
 
+# Supabase local temp files (project ref, org ID — not for sharing)
+supabase/.temp/
+
 # generated native folders
 /ios/android
 

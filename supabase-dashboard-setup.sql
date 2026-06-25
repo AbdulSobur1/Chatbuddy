@@ -108,8 +108,9 @@ CREATE POLICY "Users can delete own files"
 -- ============================================================
 -- 3. EDGE FUNCTION — DEPLOY VIA CLI
 -- ============================================================
--- Run in your terminal:
---   supabase functions deploy send-notification --project-ref pfidvejfnssiioxtvqed
+-- Run in your terminal (replace with your project ref):
+--   supabase link --project-ref YOUR_PROJECT_REF
+--   supabase functions deploy send-notification
 --
 -- Make sure you have the SUPABASE_SERVICE_ROLE_KEY set:
 --   supabase secrets set SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
@@ -126,12 +127,12 @@ CREATE POLICY "Users can delete own files"
 --   Table: messages
 --   Event: Insert
 --   Type: HTTP Request
---   URL: https://pfidvejfnssiioxtvqed.supabase.co/functions/v1/send-notification
+--   URL: https://YOUR_PROJECT_REF.supabase.co/functions/v1/send-notification
 --   HTTP Method: POST
 --   Headers:
 --     Authorization: Bearer <your-service-role-key>
 --     Content-Type: application/json
 --
--- Or using the CLI:
---   supabase secrets set SUPABASE_URL=https://pfidvejfnssiioxtvqed.supabase.co
+-- Or using the CLI (replace with your project ref):
+--   supabase secrets set SUPABASE_URL=https://YOUR_PROJECT_REF.supabase.co
 --   supabase functions deploy send-notification
