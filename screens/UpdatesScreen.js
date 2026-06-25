@@ -9,8 +9,11 @@ import { useFocusEffect } from '@react-navigation/native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../lib/supabase'
 import { useAuthStore, useMessagesStore } from '../lib/store'
+import { colors, radius, shadows } from '../lib/theme'
+import { useToast } from '../components/Toast'
+import { StorySkeleton } from '../components/Skeleton'
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window')
+const { width: SCREEN_WIDTH } = Dimensions.get('window')
 const AVATAR_SIZE = 64
 const RING_SIZE = AVATAR_SIZE + 8
 
@@ -24,9 +27,10 @@ export default function UpdatesScreen({ navigation }) {
   const [showCreate, setShowCreate] = useState(false)
   const [statusText, setStatusText] = useState('')
   const [creating, setCreating] = useState(false)
+  const toast = useToast()
 
   // Image picker state
-  const [selectedImage, setSelectedImage] = useState(null) // { uri, fileName }
+  const [selectedImage, setSelectedImage] = useState(null)
 
   // Story viewer state
   const [viewingUser, setViewingUser] = useState(null)
@@ -106,7 +110,6 @@ export default function UpdatesScreen({ navigation }) {
     setLoading(false)
   }
 
-  // ─── Image Picker ──────────────────────────────────────────
   const handlePickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
@@ -121,42 +124,36 @@ export default function UpdatesScreen({ navigation }) {
     })
   }
 
-  const removeSelectedImage = () => {
-    setSelectedImage(null)
-  }
+  const removeSelectedImage = () => setSelectedImage(null)
 
-  // ─── Create Status (text + optional image) ────────────────
   const createStatus = async () => {
     if (!statusText.trim() && !selectedImage) return
     setCreating(true)
     try {
       let mediaUrl = null
       let mediaType = 'text'
-
       if (selectedImage) {
         mediaUrl = await uploadFile(selectedImage.uri, selectedImage.fileName)
         mediaType = 'image'
       }
-
       await supabase.from('status_updates').insert({
         user_id: user.id,
         content: statusText.trim() || (mediaType === 'image' ? '📷 Photo' : null),
         media_url: mediaUrl,
         media_type: mediaType,
       })
-
       setShowCreate(false)
       setStatusText('')
       setSelectedImage(null)
       fetchStatuses()
     } catch (e) {
-      Alert.alert('Error', e.message)
+      toast.show(e.message, 'error')
     } finally {
       setCreating(false)
     }
   }
 
-  const deleteStatus = async (statusId) => {
+  const deleteStatus = (statusId) => {
     Alert.alert('Delete Status', 'Remove this status update?', [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -164,6 +161,7 @@ export default function UpdatesScreen({ navigation }) {
         onPress: async () => {
           await supabase.from('status_updates').delete().eq('id', statusId)
           fetchStatuses()
+          toast.show('Status deleted', 'info')
         },
       },
     ])
@@ -181,7 +179,6 @@ export default function UpdatesScreen({ navigation }) {
       )
       setViewedIds((prev) => new Set(prev).add(firstStatus.id))
     }
-
     await fetchViewerNames(firstStatus)
   }
 
@@ -202,15 +199,12 @@ export default function UpdatesScreen({ navigation }) {
   const navigateStory = async (direction) => {
     if (!viewingUser) return
     const newIndex = currentStatusIndex + direction
-
     if (newIndex < 0 || newIndex >= viewingUser.statuses.length) {
       setViewingUser(null)
       return
     }
-
     setCurrentStatusIndex(newIndex)
     const status = viewingUser.statuses[newIndex]
-
     if (!viewedIds.has(status.id)) {
       await supabase.from('status_views').upsert(
         { status_id: status.id, viewer_id: user.id },
@@ -218,7 +212,6 @@ export default function UpdatesScreen({ navigation }) {
       )
       setViewedIds((prev) => new Set(prev).add(status.id))
     }
-
     await fetchViewerNames(status)
   }
 
@@ -239,7 +232,6 @@ export default function UpdatesScreen({ navigation }) {
   })
 
   const statusList = Object.values(groupedStatuses)
-
   const recentStatusList = statusList.filter((item) =>
     item.statuses.some((s) => !viewedIds.has(s.id))
   )
@@ -295,7 +287,6 @@ export default function UpdatesScreen({ navigation }) {
   // ─── Circles Row ───────────────────────────────────────────
   const renderCirclesRow = () => {
     const allStatusItems = statusList
-
     return (
       <View style={styles.circlesSection}>
         <ScrollView
@@ -314,21 +305,17 @@ export default function UpdatesScreen({ navigation }) {
               }
             }}
           />
-
           {allStatusItems.map((item) => (
             <AvatarCircle
               key={item.user?.id}
               item={item}
-              isActive={true}
+              isActive
               onPress={() => openStory(item.user, item.statuses)}
             />
           ))}
-
           {allStatusItems.length === 0 && (
             <View style={styles.noCirclesHint}>
-              <Text style={styles.noCirclesText}>
-                Statuses from contacts appear here
-              </Text>
+              <Text style={styles.noCirclesText}>Statuses from contacts appear here</Text>
             </View>
           )}
         </ScrollView>
@@ -339,7 +326,6 @@ export default function UpdatesScreen({ navigation }) {
   // ─── Story Content Renderer ────────────────────────────────
   const renderStoryContent = (status) => {
     if (!status) return null
-
     const isImage = status.media_type === 'image' && status.media_url
 
     return (
@@ -372,9 +358,7 @@ export default function UpdatesScreen({ navigation }) {
           </View>
         ) : (
           <View style={styles.storyContentBox}>
-            <Text style={styles.storyContentText}>
-              {status.content || ''}
-            </Text>
+            <Text style={styles.storyContentText}>{status.content || ''}</Text>
           </View>
         )}
       </TouchableOpacity>
@@ -417,15 +401,13 @@ export default function UpdatesScreen({ navigation }) {
               ? (recentStatus.content.length > 30
                   ? recentStatus.content.substring(0, 30) + '…'
                   : recentStatus.content)
-              : hasImage
-                ? '📷 Photo'
-                : ''}
+              : hasImage ? '📷 Photo' : ''}
             {' · '}{getTimeAgo(recentStatus?.created_at)}
             {hasUnviewed ? ' · New' : ''}
           </Text>
         </View>
         {!hasUnviewed && (
-          <Ionicons name="checkmark-done" size={18} color="#555" />
+          <Ionicons name="checkmark-done" size={18} color={colors.textMuted} />
         )}
       </TouchableOpacity>
     )
@@ -435,7 +417,7 @@ export default function UpdatesScreen({ navigation }) {
   return (
     <View style={styles.container}>
       {loading ? (
-        <View style={styles.center}><ActivityIndicator size="large" color="#6c63ff" /></View>
+        <View style={styles.center}><StorySkeleton /></View>
       ) : (
         <FlatList
           data={[
@@ -460,7 +442,7 @@ export default function UpdatesScreen({ navigation }) {
           ListEmptyComponent={
             <View style={styles.emptyState}>
               <View style={styles.emptyIconCircle}>
-                <Ionicons name="cellular-outline" size={36} color="#333" />
+                <Ionicons name="cellular-outline" size={36} color={colors.textMuted} />
               </View>
               <Text style={styles.emptyTitle}>No updates yet</Text>
               <Text style={styles.emptyText}>
@@ -487,10 +469,7 @@ export default function UpdatesScreen({ navigation }) {
         <View style={styles.createOverlay}>
           <View style={styles.createContent}>
             <View style={styles.createHeader}>
-              <TouchableOpacity onPress={() => {
-                setShowCreate(false)
-                setSelectedImage(null)
-              }}>
+              <TouchableOpacity onPress={() => { setShowCreate(false); setSelectedImage(null) }}>
                 <Text style={styles.createCancelText}>Cancel</Text>
               </TouchableOpacity>
               <Text style={styles.createTitle}>My Status</Text>
@@ -499,7 +478,7 @@ export default function UpdatesScreen({ navigation }) {
                 disabled={(!statusText.trim() && !selectedImage) || creating}
               >
                 {creating ? (
-                  <ActivityIndicator color="#6c63ff" size="small" />
+                  <ActivityIndicator color={colors.primary} size="small" />
                 ) : (
                   <Text style={[
                     styles.createPostText,
@@ -512,7 +491,6 @@ export default function UpdatesScreen({ navigation }) {
             </View>
 
             <View style={styles.createBody}>
-              {/* Image preview */}
               {selectedImage ? (
                 <View style={styles.imagePreviewContainer}>
                   <Image
@@ -524,7 +502,7 @@ export default function UpdatesScreen({ navigation }) {
                     style={styles.removeImageBtn}
                     onPress={removeSelectedImage}
                   >
-                    <Ionicons name="close-circle" size={24} color="#ff4757" />
+                    <Ionicons name="close-circle" size={24} color={colors.danger} />
                   </TouchableOpacity>
                 </View>
               ) : (
@@ -539,7 +517,7 @@ export default function UpdatesScreen({ navigation }) {
                 <TextInput
                   style={styles.createInput}
                   placeholder={selectedImage ? 'Add a caption...' : "What's on your mind?"}
-                  placeholderTextColor="#555"
+                  placeholderTextColor={colors.textMuted}
                   value={statusText}
                   onChangeText={setStatusText}
                   multiline
@@ -548,7 +526,7 @@ export default function UpdatesScreen({ navigation }) {
                 />
                 {!selectedImage && (
                   <TouchableOpacity style={styles.addImageBtn} onPress={handlePickImage}>
-                    <Ionicons name="image-outline" size={24} color="#6c63ff" />
+                    <Ionicons name="image-outline" size={24} color={colors.primary} />
                     <Text style={styles.addImageText}>Add Photo</Text>
                   </TouchableOpacity>
                 )}
@@ -592,14 +570,13 @@ export default function UpdatesScreen({ navigation }) {
           <View style={styles.storyBottomBar}>
             {viewerNames ? (
               <Text style={styles.storyViewerText}>
-                <Ionicons name="eye-outline" size={14} color="#888" /> Seen by {viewerNames}
+                <Ionicons name="eye-outline" size={14} color={colors.textTertiary} /> Seen by {viewerNames}
               </Text>
             ) : (
               <Text style={styles.storyViewerText}>
-                <Ionicons name="eye-off-outline" size={14} color="#555" /> No views yet
+                <Ionicons name="eye-off-outline" size={14} color={colors.textMuted} /> No views yet
               </Text>
             )}
-
             {viewingUser && viewingUser.statuses.length > 1 && (
               <View style={styles.storyDots}>
                 {viewingUser.statuses.map((_, i) => (
@@ -622,102 +599,101 @@ export default function UpdatesScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#1a1a2e' },
+  container: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listContent: { paddingBottom: 80 },
 
   // ─── Circles Row ──────────────────────────────────────────
-  circlesSection: { paddingVertical: 16, borderBottomWidth: 0.5, borderBottomColor: '#2a2a4a' },
+  circlesSection: { paddingVertical: 16, borderBottomWidth: 0.5, borderBottomColor: colors.border },
   circlesScroll: { paddingHorizontal: 16, gap: 16, alignItems: 'flex-start' },
   avatarCircleWrapper: { alignItems: 'center', width: 76 },
   avatarRing: {
     width: RING_SIZE, height: RING_SIZE, borderRadius: RING_SIZE / 2,
     justifyContent: 'center', alignItems: 'center', backgroundColor: 'transparent',
-    borderWidth: 3, borderColor: '#2a2a4a', marginBottom: 6,
+    borderWidth: 3, borderColor: colors.surfaceActive, marginBottom: 6,
   },
-  avatarRingActive: { borderColor: '#2ecc71' },
-  avatarRingUnviewed: { borderColor: '#2ecc71', borderWidth: 3 },
+  avatarRingActive: { borderColor: colors.accent },
+  avatarRingUnviewed: { borderColor: colors.accent, borderWidth: 3 },
   avatarCircle: {
     width: AVATAR_SIZE, height: AVATAR_SIZE, borderRadius: AVATAR_SIZE / 2,
-    backgroundColor: '#2a2a4a', justifyContent: 'center', alignItems: 'center',
+    backgroundColor: colors.surfaceActive, justifyContent: 'center', alignItems: 'center',
   },
-  myAvatarCircle: { backgroundColor: '#6c63ff' },
+  myAvatarCircle: { backgroundColor: colors.primary },
   avatarText: { color: '#fff', fontSize: 26, fontWeight: '600' },
-  avatarLabel: { color: '#888', fontSize: 12, textAlign: 'center', fontWeight: '500' },
-  avatarLabelActive: { color: '#fff', fontWeight: '600' },
+  avatarLabel: { color: colors.textMuted, fontSize: 12, textAlign: 'center', fontWeight: '500' },
+  avatarLabelActive: { color: colors.textPrimary, fontWeight: '600' },
   noCirclesHint: { height: AVATAR_SIZE + 32, justifyContent: 'center', paddingLeft: 8 },
-  noCirclesText: { color: '#444', fontSize: 14 },
+  noCirclesText: { color: colors.textDisabled, fontSize: 14 },
 
   // ─── Section Header ───────────────────────────────────────
   sectionHeader: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 8 },
   sectionTitle: {
-    color: '#888', fontSize: 14, fontWeight: '600',
+    color: colors.textMuted, fontSize: 14, fontWeight: '600',
     textTransform: 'uppercase', letterSpacing: 0.5,
   },
 
   // ─── Status List Items ────────────────────────────────────
   statusItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 14, gap: 14 },
   statusAvatar: { width: 52, height: 52, borderRadius: 26, justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
-  statusAvatarUnviewed: { backgroundColor: '#6c63ff', borderWidth: 3, borderColor: '#2ecc71' },
-  statusAvatarViewed: { backgroundColor: '#2a2a4a', borderWidth: 1, borderColor: '#3a3a5a' },
+  statusAvatarUnviewed: { backgroundColor: colors.primary, borderWidth: 3, borderColor: colors.accent },
+  statusAvatarViewed: { backgroundColor: colors.surfaceActive, borderWidth: 1, borderColor: colors.borderLight },
   statusAvatarImage: { width: 52, height: 52, borderRadius: 26 },
   statusAvatarText: { color: '#fff', fontSize: 22, fontWeight: '600' },
   statusInfo: { flex: 1 },
-  statusName: { color: '#ccc', fontSize: 16, fontWeight: '500', marginBottom: 2 },
-  statusNameActive: { color: '#fff', fontWeight: '600' },
-  statusTime: { color: '#888', fontSize: 13 },
+  statusName: { color: colors.textSecondary, fontSize: 16, fontWeight: '500', marginBottom: 2 },
+  statusNameActive: { color: colors.textPrimary, fontWeight: '600' },
+  statusTime: { color: colors.textMuted, fontSize: 13 },
 
   // ─── Empty State ──────────────────────────────────────────
   emptyState: { alignItems: 'center', paddingVertical: 80, paddingHorizontal: 40 },
   emptyIconCircle: {
-    width: 72, height: 72, borderRadius: 36, backgroundColor: 'rgba(255,255,255,0.05)',
+    width: 72, height: 72, borderRadius: 36, backgroundColor: `${colors.textPrimary}0D`,
     justifyContent: 'center', alignItems: 'center', marginBottom: 16,
   },
-  emptyTitle: { color: '#fff', fontSize: 20, fontWeight: '600', marginBottom: 8 },
-  emptyText: { color: '#888', fontSize: 15, textAlign: 'center', lineHeight: 22 },
+  emptyTitle: { color: colors.textPrimary, fontSize: 20, fontWeight: '600', marginBottom: 8 },
+  emptyText: { color: colors.textMuted, fontSize: 15, textAlign: 'center', lineHeight: 22 },
 
   // ─── FAB ──────────────────────────────────────────────────
   fab: {
     position: 'absolute', right: 20, bottom: 20, width: 56, height: 56,
-    borderRadius: 28, backgroundColor: '#6c63ff', justifyContent: 'center',
-    alignItems: 'center', elevation: 8, shadowColor: '#6c63ff',
-    shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8,
+    borderRadius: 28, backgroundColor: colors.primary, justifyContent: 'center',
+    alignItems: 'center', ...shadows.glow,
   },
 
   // ─── Create Modal ─────────────────────────────────────────
-  createOverlay: { flex: 1, backgroundColor: '#1a1a2e' },
+  createOverlay: { flex: 1, backgroundColor: colors.bg },
   createContent: { flex: 1, paddingTop: 60 },
   createHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-    paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 0.5, borderBottomColor: '#2a2a4a',
+    paddingHorizontal: 20, paddingBottom: 16, borderBottomWidth: 0.5, borderBottomColor: colors.border,
   },
-  createCancelText: { color: '#888', fontSize: 16 },
-  createTitle: { color: '#fff', fontSize: 17, fontWeight: '600' },
-  createPostText: { color: '#6c63ff', fontSize: 16, fontWeight: '600' },
-  createPostTextDisabled: { color: '#444' },
+  createCancelText: { color: colors.textMuted, fontSize: 16 },
+  createTitle: { color: colors.textPrimary, fontSize: 17, fontWeight: '600' },
+  createPostText: { color: colors.primary, fontSize: 16, fontWeight: '600' },
+  createPostTextDisabled: { color: colors.textDisabled },
   createBody: { flex: 1, padding: 20, flexDirection: 'row', gap: 14 },
   createAvatar: {
-    width: 44, height: 44, borderRadius: 22, backgroundColor: '#6c63ff',
+    width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary,
     justifyContent: 'center', alignItems: 'center',
   },
   createAvatarText: { color: '#fff', fontSize: 20, fontWeight: '600' },
   createInputArea: { flex: 1 },
-  createInput: { flex: 1, color: '#fff', fontSize: 18, lineHeight: 26, paddingTop: 8, minHeight: 80 },
+  createInput: { flex: 1, color: colors.textPrimary, fontSize: 18, lineHeight: 26, paddingTop: 8, minHeight: 80 },
   addImageBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     marginTop: 16, paddingVertical: 10, paddingHorizontal: 16,
-    backgroundColor: 'rgba(108,99,255,0.1)', borderRadius: 12,
+    backgroundColor: `${colors.primary}1A`, borderRadius: radius.md,
     alignSelf: 'flex-start',
   },
-  addImageText: { color: '#6c63ff', fontSize: 15, fontWeight: '500' },
+  addImageText: { color: colors.primary, fontSize: 15, fontWeight: '500' },
   imagePreviewContainer: {
     width: 120, height: 200, borderRadius: 16, overflow: 'hidden',
-    backgroundColor: '#16213e',
+    backgroundColor: colors.bgSecondary,
   },
   imagePreview: { width: '100%', height: '100%' },
   removeImageBtn: {
     position: 'absolute', top: -6, right: -6,
-    backgroundColor: '#1a1a2e', borderRadius: 12,
+    backgroundColor: colors.bg, borderRadius: 12,
   },
 
   // ─── Story Viewer ─────────────────────────────────────────
@@ -728,12 +704,12 @@ const styles = StyleSheet.create({
   },
   storyUserInfo: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   storyAvatar: {
-    width: 40, height: 40, borderRadius: 20, backgroundColor: '#6c63ff',
+    width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary,
     justifyContent: 'center', alignItems: 'center',
   },
   storyAvatarText: { color: '#fff', fontSize: 18, fontWeight: '600' },
   storyUserName: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  storyTime: { color: '#888', fontSize: 13, marginTop: 2 },
+  storyTime: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
   storyCloseBtn: { padding: 8 },
   storyContentArea: {
     flex: 1, justifyContent: 'center', alignItems: 'center',
@@ -742,11 +718,7 @@ const styles = StyleSheet.create({
   storyImageContainer: {
     flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center',
   },
-  storyImage: {
-    width: '100%',
-    height: '80%',
-    borderRadius: 16,
-  },
+  storyImage: { width: '100%', height: '80%', borderRadius: 16 },
   storyImageCaption: {
     position: 'absolute', bottom: 20, left: 16, right: 16,
     backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 12,
@@ -760,8 +732,8 @@ const styles = StyleSheet.create({
   },
   storyContentText: { color: '#fff', fontSize: 22, lineHeight: 32, textAlign: 'center' },
   storyBottomBar: { alignItems: 'center', paddingHorizontal: 24, paddingBottom: 48, gap: 12 },
-  storyViewerText: { color: '#888', fontSize: 14, textAlign: 'center' },
+  storyViewerText: { color: colors.textTertiary, fontSize: 14, textAlign: 'center' },
   storyDots: { flexDirection: 'row', gap: 8 },
-  storyDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#333' },
-  storyDotActive: { backgroundColor: '#6c63ff', width: 24 },
+  storyDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.textDisabled },
+  storyDotActive: { backgroundColor: colors.primary, width: 24 },
 })

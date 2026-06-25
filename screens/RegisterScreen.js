@@ -1,9 +1,14 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import {
-  View, Text, TextInput, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
+  View, Text, TouchableOpacity, StyleSheet,
+  KeyboardAvoidingView, Platform, Animated, SafeAreaView, ScrollView,
 } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import { useAuthStore } from '../lib/store'
+import { colors, radius, shadows } from '../lib/theme'
+import { useToast } from '../components/Toast'
+import Input from '../components/Input'
+import Button from '../components/Button'
 
 export default function RegisterScreen({ navigation }) {
   const [displayName, setDisplayName] = useState('')
@@ -12,234 +17,299 @@ export default function RegisterScreen({ navigation }) {
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [errors, setErrors] = useState({})
   const signUp = useAuthStore((s) => s.signUp)
+  const toast = useToast()
+
+  // ── Animations ──────────────────────────────────────────────
+  const fadeAnim = useRef(new Animated.Value(0)).current
+  const slideAnim = useRef(new Animated.Value(30)).current
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start()
+  }, [])
+
+  // ── Validation ───────────────────────────────────────────────
+  const validate = () => {
+    const newErrors = {}
+
+    if (!displayName.trim()) newErrors.displayName = 'Display name is required'
+    else if (displayName.trim().length < 2) newErrors.displayName = 'Display name must be at least 2 characters'
+
+    if (!username.trim()) newErrors.username = 'Username is required'
+    else if (!/^[a-zA-Z][a-zA-Z0-9_]{1,19}$/.test(username.trim())) {
+      newErrors.username = 'Start with a letter. Use letters, numbers, and underscores (2-20 chars)'
+    }
+
+    if (!email.trim()) newErrors.email = 'Email is required'
+    else if (!/\S+@\S+\.\S+/.test(email)) newErrors.email = 'Invalid email address'
+
+    if (!password) newErrors.password = 'Password is required'
+    else if (password.length < 6) newErrors.password = 'Password must be at least 6 characters'
+
+    if (!confirmPassword) newErrors.confirmPassword = 'Please confirm your password'
+    else if (password !== confirmPassword) newErrors.confirmPassword = 'Passwords do not match'
+
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
 
   const handleRegister = async () => {
-    if (!displayName.trim() || !username.trim() || !email.trim() || !password.trim() || !confirmPassword.trim()) {
-      Alert.alert('Error', 'Please fill in all fields')
-      return
-    }
-    if (!/^[a-zA-Z][a-zA-Z0-9_]{1,19}$/.test(username.trim())) {
-      Alert.alert('Error', 'Username must start with a letter and contain only letters, numbers, and underscores (2-20 chars)')
-      return
-    }
-    if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match')
-      return
-    }
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters')
-      return
-    }
-
+    if (!validate()) return
     setLoading(true)
     try {
       await signUp(email.trim(), password, displayName.trim(), username.trim())
-      Alert.alert(
-        'Account Created',
-        'You can now sign in with your credentials.',
-        [{ text: 'OK', onPress: () => navigation.goBack() }]
-      )
+      toast.show('Account created! You can now sign in.', 'success')
+      navigation.goBack()
     } catch (error) {
-      Alert.alert('Registration Failed', error.message)
+      toast.show(error.message || 'Registration failed. Please try again.', 'error')
     } finally {
       setLoading(false)
     }
   }
 
+  const clearError = (field) => {
+    if (errors[field]) setErrors((e) => ({ ...e, [field]: null }))
+  }
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <View style={styles.inner}>
-        <Text style={styles.title}>Create Account</Text>
-        <Text style={styles.subtitle}>Join ChatBuddy today</Text>
+    <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.keyboard}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+        {/* Background decor */}
+        <View style={styles.bgDecor1} />
+        <View style={styles.bgDecor2} />
 
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Display Name</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Your name"
-            placeholderTextColor="#666"
-            value={displayName}
-            onChangeText={setDisplayName}
-            autoCapitalize="words"
-          />
-        </View>
-
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Username</Text>
-          <View style={styles.usernameInputContainer}>
-            <Text style={styles.usernamePrefix}>@</Text>
-            <TextInput
-              style={styles.usernameInput}
-              placeholder="username"
-              placeholderTextColor="#666"
-              value={username}
-              onChangeText={(v) => setUsername(v.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-              autoCapitalize="none"
-              autoCorrect={false}
-              maxLength={20}
-            />
-          </View>
-          <Text style={styles.fieldHint}>Letters, numbers, and underscores. Your unique @handle.</Text>
-        </View>
-
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="you@example.com"
-            placeholderTextColor="#666"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </View>
-
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="At least 6 characters"
-            placeholderTextColor="#666"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-        </View>
-
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Confirm Password</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Repeat your password"
-            placeholderTextColor="#666"
-            value={confirmPassword}
-            onChangeText={setConfirmPassword}
-            secureTextEntry
-          />
-        </View>
-
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleRegister}
-          disabled={loading}
+        <Animated.View
+          style={[
+            styles.content,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }],
+            },
+          ]}
         >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Create Account</Text>
-          )}
-        </TouchableOpacity>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Header */}
+            <View style={styles.header}>
+              <View style={styles.headerIcon}>
+                <Ionicons name="person-add" size={28} color="#fff" />
+              </View>
+              <Text style={styles.title}>Create Account</Text>
+              <Text style={styles.subtitle}>
+                Join ChatBuddy and start connecting with friends
+              </Text>
+            </View>
 
-        <TouchableOpacity
-          style={styles.linkButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.linkText}>
-            Already have an account? <Text style={styles.linkHighlight}>Sign In</Text>
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+            {/* Form */}
+            <View style={styles.formCard}>
+              {/* Display Name */}
+              <Input
+                label="Display Name"
+                placeholder="Your full name"
+                value={displayName}
+                onChangeText={(v) => { setDisplayName(v); clearError('displayName') }}
+                autoCapitalize="words"
+                icon="person-outline"
+                error={errors.displayName}
+              />
+
+              {/* Username */}
+              <Input
+                label="Username"
+                placeholder="Choose a unique @handle"
+                value={username}
+                onChangeText={(v) => {
+                  setUsername(v.toLowerCase().replace(/[^a-z0-9_]/g, ''))
+                  clearError('username')
+                }}
+                icon="at-outline"
+                hint="Your unique @handle. Others will find you by this."
+                error={errors.username}
+              />
+
+              {/* Email */}
+              <Input
+                label="Email"
+                placeholder="you@example.com"
+                value={email}
+                onChangeText={(v) => { setEmail(v); clearError('email') }}
+                keyboardType="email-address"
+                icon="mail-outline"
+                error={errors.email}
+              />
+
+              {/* Password */}
+              <Input
+                label="Password"
+                placeholder="At least 6 characters"
+                value={password}
+                onChangeText={(v) => { setPassword(v); clearError('password') }}
+                secureTextEntry
+                icon="lock-closed-outline"
+                error={errors.password}
+              />
+
+              {/* Confirm Password */}
+              <Input
+                label="Confirm Password"
+                placeholder="Repeat your password"
+                value={confirmPassword}
+                onChangeText={(v) => { setConfirmPassword(v); clearError('confirmPassword') }}
+                secureTextEntry
+                icon="lock-closed-outline"
+                error={errors.confirmPassword}
+              />
+
+              {/* Terms note */}
+              <Text style={styles.termsText}>
+                By creating an account, you agree to our{' '}
+                <Text style={styles.termsLink}>Terms of Service</Text> and{' '}
+                <Text style={styles.termsLink}>Privacy Policy</Text>
+              </Text>
+
+              {/* Create Account Button */}
+              <Button
+                title="Create Account"
+                onPress={handleRegister}
+                loading={loading}
+                disabled={loading}
+                size="lg"
+                fullWidth
+              />
+            </View>
+
+            {/* Login Link */}
+            <View style={styles.loginRow}>
+              <Text style={styles.loginText}>Already have an account? </Text>
+              <TouchableOpacity onPress={() => navigation.goBack()}>
+                <Text style={styles.loginLink}>Sign In</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </Animated.View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.bg,
   },
-  inner: {
+  keyboard: {
     flex: 1,
+  },
+  bgDecor1: {
+    position: 'absolute',
+    top: -80,
+    right: -50,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(108,99,255,0.06)',
+  },
+  bgDecor2: {
+    position: 'absolute',
+    bottom: 60,
+    left: -40,
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: 'rgba(46,204,113,0.04)',
+  },
+  content: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 40,
+  },
+
+  // ── Header ─────────────────────────────────────────
+  header: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  headerIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: colors.primary,
     justifyContent: 'center',
-    paddingHorizontal: 32,
+    alignItems: 'center',
+    marginBottom: 16,
+    ...shadows.glow,
   },
   title: {
-    fontSize: 28,
+    fontSize: 26,
     fontWeight: '700',
-    color: '#fff',
-    marginBottom: 8,
+    color: colors.textPrimary,
+    marginBottom: 6,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#888',
-    marginBottom: 32,
-  },
-  inputContainer: {
-    marginBottom: 16,
-  },
-  label: {
-    color: '#aaa',
     fontSize: 14,
-    marginBottom: 6,
-    fontWeight: '500',
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
-  input: {
-    backgroundColor: '#16213e',
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-    color: '#fff',
+
+  // ── Form Card ───────────────────────────────────────
+  formCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: 24,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.border,
+    ...shadows.lg,
   },
-  usernameInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#16213e',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#2a2a4a',
-  },
-  usernamePrefix: {
-    color: '#888',
-    fontSize: 16,
-    paddingLeft: 14,
-    fontWeight: '500',
-  },
-  usernameInput: {
-    flex: 1,
-    padding: 14,
-    paddingLeft: 6,
-    fontSize: 16,
-    color: '#fff',
-  },
-  fieldHint: {
-    color: '#666',
+
+  // ── Terms ───────────────────────────────────────────
+  termsText: {
     fontSize: 12,
-    marginTop: 4,
-    marginLeft: 2,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 18,
   },
-  button: {
-    backgroundColor: '#6c63ff',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 12,
+  termsLink: {
+    color: colors.primary,
+    fontWeight: '500',
   },
-  buttonDisabled: {
-    opacity: 0.6,
+
+  // ── Login Link ──────────────────────────────────────
+  loginRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 28,
   },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  linkButton: {
-    marginTop: 20,
-    alignItems: 'center',
-  },
-  linkText: {
-    color: '#888',
+  loginText: {
+    color: colors.textMuted,
     fontSize: 14,
   },
-  linkHighlight: {
-    color: '#6c63ff',
+  loginLink: {
+    color: colors.primary,
+    fontSize: 14,
     fontWeight: '600',
   },
 })

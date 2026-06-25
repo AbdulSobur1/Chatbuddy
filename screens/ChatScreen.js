@@ -10,6 +10,9 @@ import { useAudioRecorder, requestRecordingPermissionsAsync, setAudioModeAsync, 
 import { Ionicons } from '@expo/vector-icons'
 import { useAuthStore, useMessagesStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
+import { colors } from '../lib/theme'
+import ChatHeader from '../components/ChatHeader'
+import { useToast } from '../components/Toast'
 
 const EMOJI_LIST = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 
@@ -100,7 +103,7 @@ export default function ChatScreen({ route, navigation }) {
       setReplyTo(null)
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
     } catch (error) {
-      Alert.alert('Error', error.message)
+      toast.show(error.message || 'Failed to send', 'error')
     } finally {
       setSending(false)
     }
@@ -128,7 +131,7 @@ export default function ChatScreen({ route, navigation }) {
       await sendMessage(channel.id, asset.fileName || 'File', publicUrl, replyTo?.id)
       setReplyTo(null)
     } catch (error) {
-      Alert.alert('Upload Error', error.message)
+      toast.show(error.message || 'Upload failed', 'error')
     } finally {
       setSending(false)
     }
@@ -138,7 +141,7 @@ export default function ChatScreen({ route, navigation }) {
     try {
       const { granted } = await requestRecordingPermissionsAsync()
       if (!granted) {
-        Alert.alert('Permission needed', 'Microphone access is required for voice notes')
+        toast.show('Microphone access is required for voice notes', 'warning')
         return
       }
 
@@ -151,7 +154,7 @@ export default function ChatScreen({ route, navigation }) {
       recorder.record()
       setIsRecording(true)
     } catch (error) {
-      Alert.alert('Recording Error', error.message)
+      toast.show(error.message || 'Recording failed', 'error')
     }
   }
 
@@ -164,7 +167,7 @@ export default function ChatScreen({ route, navigation }) {
       const uri = recorder.uri
 
       if (!uri) {
-        Alert.alert('Error', 'Failed to get recording')
+        toast.show('Failed to get recording', 'error')
         return
       }
 
@@ -172,7 +175,7 @@ export default function ChatScreen({ route, navigation }) {
       await sendMessage(channel.id, '🎤 Voice note', publicUrl, replyTo?.id)
       setReplyTo(null)
     } catch (error) {
-      Alert.alert('Upload Error', error.message)
+      toast.show(error.message || 'Upload failed', 'error')
     } finally {
       setSending(false)
     }
@@ -193,7 +196,7 @@ export default function ChatScreen({ route, navigation }) {
       setShowEditModal(false)
       setEditText('')
     } catch (error) {
-      Alert.alert('Edit Error', error.message)
+      toast.show(error.message || 'Edit failed', 'error')
     }
   }
 
@@ -227,7 +230,7 @@ export default function ChatScreen({ route, navigation }) {
 
   const startCall = async (callType) => {
     if (!otherUserId) {
-      Alert.alert('Error', 'Cannot initiate call — no other user found')
+      toast.show('Cannot initiate call — no other user found', 'error')
       return
     }
     try {
@@ -239,12 +242,9 @@ export default function ChatScreen({ route, navigation }) {
         status: 'outgoing',
       })
       if (error) throw error
-      Alert.alert(
-        `${callType === 'audio' ? 'Audio' : 'Video'} Call Started`,
-        'Call logged! Check the Calls tab for history.'
-      )
+      toast.show(`${callType === 'audio' ? 'Audio' : 'Video'} call started!`, 'success')
     } catch (error) {
-      Alert.alert('Call Error', error.message)
+      toast.show(error.message || 'Call failed', 'error')
     }
   }
 
@@ -291,8 +291,7 @@ export default function ChatScreen({ route, navigation }) {
     // Other file type
     if (item.file_url) {
       return (
-        <View style={styles.fileAttachment}>
-          <Ionicons name="document-attach" size={24} color="#6c63ff" />
+        <View style={styles.fileAttachment}>            <Ionicons name="document-attach" size={24} color={colors.primary} />
           <Text style={styles.fileName}>{item.content || 'File'}</Text>
         </View>
       )
@@ -369,42 +368,15 @@ export default function ChatScreen({ route, navigation }) {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Ionicons name="chevron-back" size={28} color="#fff" />
-        </TouchableOpacity>
-        <View style={styles.headerInfo}>
-          <Text style={styles.headerTitle}>{channel.name}</Text>
-          <Text style={styles.headerSubtitle}>
-            {channel.channel_type === 'group' ? 'Group' : 'Direct Message'}
-          </Text>
-        </View>
-        {channel.channel_type === 'dm' && (
-          <View style={styles.headerCallButtons}>
-            <TouchableOpacity
-              style={styles.headerButton}
-              onPress={() => startCall('audio')}
-            >
-              <Ionicons name="call-outline" size={22} color="#2ecc71" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.headerButton}
-              onPress={() => startCall('video')}
-            >
-              <Ionicons name="videocam-outline" size={22} color="#6c63ff" />
-            </TouchableOpacity>
-          </View>
-        )}
-        {channel.channel_type === 'group' && (
-          <TouchableOpacity
-            style={styles.headerButton}
-            onPress={() => navigation.navigate('GroupInfo', { channel })}
-          >
-            <Ionicons name="people-outline" size={24} color="#fff" />
-          </TouchableOpacity>
-        )}
-      </View>
+      {/* Animated Header */}
+      <ChatHeader
+        channel={channel}
+        online={false}
+        onBack={() => navigation.goBack()}
+        onAudioCall={() => startCall('audio')}
+        onVideoCall={() => startCall('video')}
+        onGroupInfo={() => navigation.navigate('GroupInfo', { channel })}
+      />
 
       {/* Messages */}
       <FlatList
@@ -418,7 +390,7 @@ export default function ChatScreen({ route, navigation }) {
         }}
         ListEmptyComponent={
           <View style={styles.emptyMessages}>
-            <Ionicons name="chatbubbles-outline" size={48} color="#444" />
+            <Ionicons name="chatbubbles-outline" size={48} color={colors.textDisabled} />
             <Text style={styles.emptyMessagesText}>No messages yet</Text>
             <Text style={styles.emptyMessagesSubtext}>Say hello!</Text>
           </View>
@@ -429,13 +401,13 @@ export default function ChatScreen({ route, navigation }) {
       {replyTo && (
         <View style={styles.replyBar}>
           <View style={styles.replyBarContent}>
-            <Ionicons name="arrow-undo" size={18} color="#6c63ff" />
+            <Ionicons name="arrow-undo" size={18} color={colors.primary} />
             <Text style={styles.replyBarText} numberOfLines={1}>
               Replying to {replyTo.sender?.display_name || 'message'}
             </Text>
           </View>
           <TouchableOpacity onPress={() => setReplyTo(null)}>
-            <Ionicons name="close-circle" size={22} color="#666" />
+            <Ionicons name="close-circle" size={22} color={colors.textMuted} />
           </TouchableOpacity>
         </View>
       )}
@@ -447,15 +419,15 @@ export default function ChatScreen({ route, navigation }) {
       >
         <View style={styles.inputBar}>
           <TouchableOpacity style={styles.attachButton} onPress={handleImagePick}>
-            <Ionicons name="image-outline" size={24} color="#888" />
+            <Ionicons name="image-outline" size={24} color={colors.textTertiary} />
           </TouchableOpacity>
           <TouchableOpacity style={styles.attachButton} onPress={handleDocumentPick}>
-            <Ionicons name="document-outline" size={24} color="#888" />
+            <Ionicons name="document-outline" size={24} color={colors.textTertiary} />
           </TouchableOpacity>
           <TextInput
             style={styles.textInput}
             placeholder="Message..."
-            placeholderTextColor="#666"
+            placeholderTextColor={colors.textMuted}
             value={text}
             onChangeText={(v) => {
               setText(v)
@@ -505,7 +477,7 @@ export default function ChatScreen({ route, navigation }) {
               autoFocus
               maxLength={1000}
               placeholder="Update your message..."
-              placeholderTextColor="#666"
+              placeholderTextColor={colors.textMuted}
             />
             <View style={styles.editModalButtons}>
               <TouchableOpacity
@@ -610,46 +582,11 @@ export default function ChatScreen({ route, navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 12,
-    backgroundColor: '#16213e',
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#2a2a4a',
-  },
-  backButton: {
-    padding: 4,
-  },
-  headerInfo: {
-    flex: 1,
-    marginLeft: 8,
-  },
-  headerTitle: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  headerSubtitle: {
-    color: '#888',
-    fontSize: 13,
-    marginTop: 2,
-  },
-  headerButton: {
-    padding: 8,
-  },
-  headerCallButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginRight: 4,
+    backgroundColor: colors.bg,
   },
   messagesList: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
     flexGrow: 1,
   },
   messageRow: {
@@ -666,37 +603,37 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   myBubble: {
-    backgroundColor: '#6c63ff',
+    backgroundColor: colors.bubble.mine,
     borderBottomRightRadius: 4,
   },
   theirBubble: {
-    backgroundColor: '#2a2a4a',
+    backgroundColor: colors.bubble.theirs,
     borderBottomLeftRadius: 4,
   },
   messageText: {
-    color: '#e0e0e0',
+    color: colors.bubble.theirsText,
     fontSize: 15,
     lineHeight: 20,
   },
   myMessageText: {
-    color: '#fff',
+    color: colors.bubble.mineText,
   },
   messageTime: {
-    color: '#888',
+    color: colors.bubble.theirsTime,
     fontSize: 11,
     marginTop: 4,
     alignSelf: 'flex-end',
   },
   myMessageTime: {
-    color: 'rgba(255,255,255,0.6)',
+    color: colors.bubble.mineTime,
   },
   replyPreview: {
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: colors.bubble.theirs.replace ? colors.bubble.theirs + '20' : 'rgba(255,255,255,0.1)',
     borderRadius: 8,
     padding: 8,
     marginBottom: 6,
     borderLeftWidth: 3,
-    borderLeftColor: '#6c63ff',
+    borderLeftColor: colors.primary,
   },
   replyPreviewText: {
     color: '#aaa',
@@ -711,7 +648,7 @@ const styles = StyleSheet.create({
   reactionPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: colors.bubble.theirs.replace ? colors.bubble.theirs + '20' : 'rgba(255,255,255,0.1)',
     borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -737,7 +674,7 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   fileName: {
-    color: '#6c63ff',
+    color: colors.primary,
     fontSize: 14,
     flex: 1,
   },
@@ -770,23 +707,23 @@ const styles = StyleSheet.create({
     paddingVertical: 60,
   },
   emptyMessagesText: {
-    color: '#555',
+    color: colors.textMuted,
     fontSize: 16,
     marginTop: 12,
   },
   emptyMessagesSubtext: {
-    color: '#444',
+    color: colors.textDisabled,
     fontSize: 14,
     marginTop: 4,
   },
   replyBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#16213e',
+    backgroundColor: colors.surface,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderTopWidth: 0.5,
-    borderTopColor: '#2a2a4a',
+    borderTopColor: colors.border,
   },
   replyBarContent: {
     flex: 1,
@@ -795,7 +732,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   replyBarText: {
-    color: '#aaa',
+    color: colors.textTertiary,
     fontSize: 13,
     flex: 1,
   },
@@ -804,9 +741,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     paddingHorizontal: 8,
     paddingVertical: 8,
-    backgroundColor: '#16213e',
+    backgroundColor: colors.surface,
     borderTopWidth: 0.5,
-    borderTopColor: '#2a2a4a',
+    borderTopColor: colors.border,
     gap: 4,
   },
   attachButton: {
@@ -814,58 +751,58 @@ const styles = StyleSheet.create({
   },
   textInput: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.bg,
     borderRadius: 20,
     paddingHorizontal: 16,
     paddingVertical: 10,
     fontSize: 15,
-    color: '#fff',
+    color: colors.textPrimary,
     maxHeight: 100,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.border,
   },
   sendButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#6c63ff',
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   recordingButton: {
-    backgroundColor: '#ff4757',
+    backgroundColor: colors.danger,
   },
   editModalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: colors.overlay,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
   },
   editModalContent: {
-    backgroundColor: '#16213e',
+    backgroundColor: colors.surface,
     borderRadius: 16,
     padding: 20,
     width: '100%',
     maxWidth: 400,
   },
   editModalTitle: {
-    color: '#fff',
+    color: colors.textPrimary,
     fontSize: 17,
     fontWeight: '600',
     marginBottom: 16,
     textAlign: 'center',
   },
   editModalInput: {
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.bg,
     borderRadius: 12,
     padding: 12,
     fontSize: 15,
-    color: '#fff',
+    color: colors.textPrimary,
     minHeight: 80,
     maxHeight: 160,
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.border,
     textAlignVertical: 'top',
   },
   editModalButtons: {
@@ -878,10 +815,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 10,
-    backgroundColor: '#2a2a4a',
+    backgroundColor: colors.surfaceHover,
   },
   editModalCancelText: {
-    color: '#888',
+    color: colors.textTertiary,
     fontSize: 15,
     fontWeight: '500',
   },
@@ -889,20 +826,20 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 10,
-    backgroundColor: '#6c63ff',
+    backgroundColor: colors.primary,
   },
   editModalSaveText: {
-    color: '#fff',
+    color: colors.textPrimary,
     fontSize: 15,
     fontWeight: '600',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: colors.overlayLight,
     justifyContent: 'flex-end',
   },
   actionSheet: {
-    backgroundColor: '#16213e',
+    backgroundColor: colors.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
@@ -910,7 +847,7 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   actionTitle: {
-    color: '#fff',
+    color: colors.textPrimary,
     fontSize: 17,
     fontWeight: '600',
     marginBottom: 16,
@@ -922,10 +859,10 @@ const styles = StyleSheet.create({
     gap: 14,
     paddingVertical: 14,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#2a2a4a',
+    borderBottomColor: colors.border,
   },
   actionText: {
-    color: '#fff',
+    color: colors.textPrimary,
     fontSize: 16,
   },
   cancelAction: {
@@ -934,7 +871,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   cancelActionText: {
-    color: '#888',
+    color: colors.textTertiary,
     fontSize: 16,
   },
   emojiGrid: {
@@ -948,7 +885,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#2a2a4a',
+    backgroundColor: colors.surfaceHover,
     justifyContent: 'center',
     alignItems: 'center',
   },

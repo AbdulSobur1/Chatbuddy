@@ -1,155 +1,367 @@
-import React, { useState } from 'react'
+import React, { useState, useRef, useEffect } from 'react'
 import {
-  View, Text, TextInput, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
+  View, Text, TouchableOpacity, StyleSheet,
+  KeyboardAvoidingView, Platform, Animated, Dimensions,
+  SafeAreaView,
 } from 'react-native'
+import { Ionicons } from '@expo/vector-icons'
 import { useAuthStore } from '../lib/store'
+import { colors, radius, shadows } from '../lib/theme'
+import { useToast } from '../components/Toast'
+import Input from '../components/Input'
+import Button from '../components/Button'
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window')
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
+  const [errors, setErrors] = useState({})
   const signIn = useAuthStore((s) => s.signIn)
+  const toast = useToast()
+
+  // ── Animations ──────────────────────────────────────────────
+  const fadeAnim = useRef(new Animated.Value(0)).current
+  const slideAnim = useRef(new Animated.Value(30)).current
+  const logoAnim = useRef(new Animated.Value(0)).current
+
+  useEffect(() => {
+    Animated.sequence([
+      Animated.timing(logoAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start()
+  }, [])
+
+  // ── Validation ───────────────────────────────────────────────
+  const validate = () => {
+    const newErrors = {}
+    if (!email.trim()) newErrors.email = 'Email is required'
+    else if (!/\S+@\S+\.\S+/.test(email)) newErrors.email = 'Invalid email address'
+    if (!password) newErrors.password = 'Password is required'
+    else if (password.length < 6) newErrors.password = 'Password must be at least 6 characters'
+    setErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }
 
   const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) {
-      Alert.alert('Error', 'Please fill in all fields')
-      return
-    }
+    if (!validate()) return
     setLoading(true)
     try {
       await signIn(email.trim(), password)
     } catch (error) {
-      Alert.alert('Login Failed', error.message)
+      toast.show(error.message || 'Login failed. Please try again.', 'error')
     } finally {
       setLoading(false)
     }
   }
 
+  const logoScale = logoAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.5, 1],
+  })
+
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <View style={styles.inner}>
-        <Text style={styles.title}>Welcome Back</Text>
-        <Text style={styles.subtitle}>Sign in to continue</Text>
+    <SafeAreaView style={styles.container}>
+      <KeyboardAvoidingView
+        style={styles.keyboard}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        {/* Decorative gradient background elements */}
+        <View style={styles.bgDecor1} />
+        <View style={styles.bgDecor2} />
 
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="you@example.com"
-            placeholderTextColor="#666"
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </View>
-
-        <View style={styles.inputContainer}>
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Enter your password"
-            placeholderTextColor="#666"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-        </View>
-
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleLogin}
-          disabled={loading}
+        <Animated.View
+          style={[
+            styles.logoSection,
+            {
+              opacity: logoAnim,
+              transform: [{ scale: logoScale }],
+            },
+          ]}
         >
-          {loading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Sign In</Text>
-          )}
-        </TouchableOpacity>
+          <View style={styles.logoContainer}>
+            <View style={styles.logoIcon}>
+              <Ionicons name="chatbubbles" size={36} color="#fff" />
+            </View>
+          </View>
+          <Text style={styles.appName}>ChatBuddy</Text>
+          <Text style={styles.tagline}>Connect with anyone, anywhere</Text>
+        </Animated.View>
 
-        <TouchableOpacity
-          style={styles.linkButton}
-          onPress={() => navigation.navigate('Register')}
+        <Animated.View
+          style={[
+            styles.formSection,
+            {
+              opacity: fadeAnim,
+              transform: [{ translateY: slideAnim }],
+            },
+          ]}
         >
-          <Text style={styles.linkText}>
-            Don't have an account? <Text style={styles.linkHighlight}>Sign Up</Text>
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+          <View style={styles.formCard}>
+            <Text style={styles.welcomeTitle}>Welcome Back</Text>
+            <Text style={styles.welcomeSub}>Sign in to continue your conversations</Text>
+
+            {/* Email */}
+            <Input
+              label="Email"
+              placeholder="you@example.com"
+              value={email}
+              onChangeText={(v) => {
+                setEmail(v)
+                if (errors.email) setErrors((e) => ({ ...e, email: null }))
+              }}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              icon="mail-outline"
+              error={errors.email}
+            />
+
+            {/* Password */}
+            <Input
+              label="Password"
+              placeholder="Enter your password"
+              value={password}
+              onChangeText={(v) => {
+                setPassword(v)
+                if (errors.password) setErrors((e) => ({ ...e, password: null }))
+              }}
+              secureTextEntry
+              icon="lock-closed-outline"
+              error={errors.password}
+            />
+
+            {/* Forgot Password */}
+            <TouchableOpacity
+              style={styles.forgotRow}
+              onPress={() => toast.show('Password reset coming soon!', 'info')}
+            >
+              <Text style={styles.forgotText}>Forgot password?</Text>
+            </TouchableOpacity>
+
+            {/* Sign In Button */}
+            <Button
+              title="Sign In"
+              onPress={handleLogin}
+              loading={loading}
+              disabled={loading}
+              size="lg"
+              fullWidth
+              style={styles.signInButton}
+            />
+
+            {/* Divider */}
+            <View style={styles.divider}>
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or continue with</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Social Buttons */}
+            <View style={styles.socialRow}>
+              <TouchableOpacity
+                style={styles.socialBtn}
+                activeOpacity={0.7}
+                onPress={() => toast.show('Google sign in coming soon!', 'info')}
+              >
+                <Ionicons name="logo-google" size={22} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.socialBtn}
+                activeOpacity={0.7}
+                onPress={() => toast.show('Apple sign in coming soon!', 'info')}
+              >
+                <Ionicons name="logo-apple" size={22} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.socialBtn}
+                activeOpacity={0.7}
+                onPress={() => toast.show('GitHub sign in coming soon!', 'info')}
+              >
+                <Ionicons name="logo-github" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Register Link */}
+          <View style={styles.signupRow}>
+            <Text style={styles.signupText}>Don't have an account? </Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+              <Text style={styles.signupLink}>Create Account</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   )
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#1a1a2e',
+    backgroundColor: colors.bg,
   },
-  inner: {
+  keyboard: {
     flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 32,
   },
-  title: {
+
+  // ── Background Decor ──────────────────────────────
+  bgDecor1: {
+    position: 'absolute',
+    top: -100,
+    right: -60,
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: 'rgba(108,99,255,0.08)',
+  },
+  bgDecor2: {
+    position: 'absolute',
+    top: 80,
+    left: -40,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: 'rgba(46,204,113,0.05)',
+  },
+
+  // ── Logo Section ──────────────────────────────────
+  logoSection: {
+    alignItems: 'center',
+    paddingTop: SCREEN_HEIGHT * 0.07,
+    paddingBottom: 24,
+  },
+  logoContainer: {
+    marginBottom: 16,
+  },
+  logoIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...shadows.glow,
+  },
+  appName: {
     fontSize: 32,
     fontWeight: '700',
-    color: '#fff',
-    marginBottom: 8,
+    color: colors.textPrimary,
+    letterSpacing: 0.5,
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#888',
-    marginBottom: 40,
+  tagline: {
+    fontSize: 14,
+    color: colors.textMuted,
+    marginTop: 6,
   },
-  inputContainer: {
+
+  // ── Form Section ──────────────────────────────────
+  formSection: {
+    flex: 1,
+    paddingHorizontal: 24,
+    justifyContent: 'center',
+  },
+  formCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: 28,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadows.lg,
+  },
+  welcomeTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    marginBottom: 4,
+  },
+  welcomeSub: {
+    fontSize: 14,
+    color: colors.textMuted,
+    marginBottom: 28,
+  },
+
+  // ── Forgot Password ───────────────────────────────
+  forgotRow: {
+    alignSelf: 'flex-end',
+    marginTop: -8,
     marginBottom: 20,
   },
-  label: {
-    color: '#aaa',
-    fontSize: 14,
-    marginBottom: 8,
+  forgotText: {
+    fontSize: 13,
+    color: colors.primary,
     fontWeight: '500',
   },
-  input: {
-    backgroundColor: '#16213e',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 16,
-    color: '#fff',
+
+  // ── Sign In Button ────────────────────────────────
+  signInButton: {
+    borderRadius: radius.md,
+  },
+
+  // ── Divider ───────────────────────────────────────
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 24,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: colors.border,
+  },
+  dividerText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    marginHorizontal: 12,
+  },
+
+  // ── Social Buttons ────────────────────────────────
+  socialRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  socialBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.surfaceHover,
+    justifyContent: 'center',
+    alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2a2a4a',
+    borderColor: colors.border,
   },
-  button: {
-    backgroundColor: '#6c63ff',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 12,
+
+  // ── Sign Up Link ──────────────────────────────────
+  signupRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    marginTop: 32,
+    paddingBottom: 20,
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  linkButton: {
-    marginTop: 24,
-    alignItems: 'center',
-  },
-  linkText: {
-    color: '#888',
+  signupText: {
+    color: colors.textMuted,
     fontSize: 14,
   },
-  linkHighlight: {
-    color: '#6c63ff',
+  signupLink: {
+    color: colors.primary,
+    fontSize: 14,
     fontWeight: '600',
   },
 })

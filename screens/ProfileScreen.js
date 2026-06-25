@@ -1,37 +1,31 @@
 import React, { useState, useEffect } from 'react'
-import {
-  View, Text, TextInput, TouchableOpacity,
-  StyleSheet, Alert, ActivityIndicator,
-} from 'react-native'
+import { View, Text, StyleSheet, ActivityIndicator, ScrollView } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuthStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
+import { colors, radius } from '../lib/theme'
+import Avatar from '../components/Avatar'
+import Input from '../components/Input'
+import Button from '../components/Button'
+import { useToast } from '../components/Toast'
+import { ProfileCardSkeleton } from '../components/Skeleton'
 
-export default function ProfileScreen({ navigation }) {
+export default function ProfileScreen() {
   const user = useAuthStore((s) => s.user)
   const [displayName, setDisplayName] = useState('')
   const [username, setUsername] = useState('')
   const [status, setStatus] = useState('')
-  const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const toast = useToast()
 
-  useEffect(() => {
-    fetchProfile()
-  }, [])
+  useEffect(() => { fetchProfile() }, [])
 
   const fetchProfile = async () => {
     if (!user) return
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', user.id)
-      .single()
-
-    if (error) {
-      console.error('fetchProfile error:', error)
-    } else if (data) {
-      setProfile(data)
+    const { data, error } = await supabase.from('users').select('*').eq('id', user.id).maybeSingle()
+    if (error) console.error('fetchProfile error:', error)
+    else if (data) {
       setDisplayName(data.display_name || '')
       setUsername(data.username || '')
       setStatus(data.status || '')
@@ -40,10 +34,7 @@ export default function ProfileScreen({ navigation }) {
   }
 
   const saveProfile = async () => {
-    if (!displayName.trim()) {
-      Alert.alert('Error', 'Display name is required')
-      return
-    }
+    if (!displayName.trim()) { toast.show('Display name is required', 'error'); return }
     setSaving(true)
     const { error } = await supabase
       .from('users')
@@ -53,188 +44,34 @@ export default function ProfileScreen({ navigation }) {
         status: status.trim() || null,
       })
       .eq('id', user.id)
-
-    if (error) {
-      Alert.alert('Error', error.message)
-    } else {
-      Alert.alert('Saved', 'Profile updated successfully')
-    }
+    if (error) toast.show(error.message, 'error')
+    else toast.show('Profile updated successfully', 'success')
     setSaving(false)
   }
 
-  if (loading) {
-    return (
-      <View style={[styles.container, styles.center]}>
-        <ActivityIndicator size="large" color="#6c63ff" />
-      </View>
-    )
-  }
+  if (loading) return <View style={[styles.container, styles.center]}><ProfileCardSkeleton /></View>
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
       <View style={styles.avatarSection}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {(displayName || user?.email || 'U').charAt(0).toUpperCase()}
-          </Text>
-        </View>
+        <Avatar name={displayName || user?.email} size="xxl" />
         <Text style={styles.email}>{user?.email}</Text>
       </View>
 
       <View style={styles.form}>
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Display Name</Text>
-          <TextInput
-            style={styles.input}
-            value={displayName}
-            onChangeText={setDisplayName}
-            placeholder="Your display name"
-            placeholderTextColor="#666"
-          />
-        </View>
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Username</Text>
-          <View style={styles.usernameInputContainer}>
-            <Text style={styles.usernamePrefix}>@</Text>
-            <TextInput
-              style={styles.usernameInput}
-              value={username}
-              onChangeText={(v) => setUsername(v.toLowerCase().replace(/[^a-z0-9_]/g, ''))}
-              placeholder="username"
-              placeholderTextColor="#666"
-              autoCapitalize="none"
-              autoCorrect={false}
-              maxLength={20}
-            />
-          </View>
-          <Text style={styles.fieldHint}>Your unique @handle. Others will find you by this.</Text>
-        </View>
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>Status</Text>
-          <TextInput
-            style={styles.input}
-            value={status}
-            onChangeText={setStatus}
-            placeholder="What's on your mind?"
-            placeholderTextColor="#666"
-            multiline
-            maxLength={100}
-          />
-        </View>
-
-        <TouchableOpacity
-          style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-          onPress={saveProfile}
-          disabled={saving}
-        >
-          {saving ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.saveButtonText}>Save Changes</Text>
-          )}
-        </TouchableOpacity>
+        <Input label="Display Name" placeholder="Your display name" value={displayName} onChangeText={setDisplayName} icon="person-outline" />
+        <Input label="Username" placeholder="username" value={username} onChangeText={(v) => setUsername(v.toLowerCase().replace(/[^a-z0-9_]/g, ''))} icon="at-outline" hint="Your unique @handle. Others will find you by this." />
+        <Input label="Status" placeholder="What's on your mind?" value={status} onChangeText={setStatus} icon="chatbubble-ellipses-outline" multiline maxLength={100} />
+        <Button title="Save Changes" onPress={saveProfile} loading={saving} disabled={saving} size="lg" fullWidth style={{ marginTop: 12 }} />
       </View>
-    </View>
+    </ScrollView>
   )
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#1a1a2e',
-  },
-  center: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarSection: {
-    alignItems: 'center',
-    paddingVertical: 32,
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#2a2a4a',
-  },
-  avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#6c63ff',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  avatarText: {
-    color: '#fff',
-    fontSize: 36,
-    fontWeight: '600',
-  },
-  email: {
-    color: '#888',
-    fontSize: 14,
-  },
-  form: {
-    paddingHorizontal: 24,
-    paddingTop: 24,
-  },
-  inputGroup: {
-    marginBottom: 20,
-  },
-  label: {
-    color: '#aaa',
-    fontSize: 14,
-    marginBottom: 8,
-    fontWeight: '500',
-  },
-  input: {
-    backgroundColor: '#16213e',
-    borderRadius: 12,
-    padding: 14,
-    fontSize: 16,
-    color: '#fff',
-    borderWidth: 1,
-    borderColor: '#2a2a4a',
-  },
-  usernameInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#16213e',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#2a2a4a',
-  },
-  usernamePrefix: {
-    color: '#888',
-    fontSize: 16,
-    paddingLeft: 14,
-    fontWeight: '500',
-  },
-  usernameInput: {
-    flex: 1,
-    padding: 14,
-    paddingLeft: 6,
-    fontSize: 16,
-    color: '#fff',
-  },
-  fieldHint: {
-    color: '#666',
-    fontSize: 12,
-    marginTop: 4,
-    marginLeft: 2,
-  },
-  saveButton: {
-    backgroundColor: '#6c63ff',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  saveButtonDisabled: {
-    opacity: 0.6,
-  },
-  saveButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  container: { flex: 1, backgroundColor: colors.bg },
+  center: { justifyContent: 'center', alignItems: 'center' },
+  avatarSection: { alignItems: 'center', paddingVertical: 32, borderBottomWidth: 0.5, borderBottomColor: colors.border },
+  email: { color: colors.textMuted, fontSize: 14, marginTop: 12 },
+  form: { paddingHorizontal: 24, paddingTop: 24 },
 })

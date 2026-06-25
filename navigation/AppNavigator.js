@@ -1,12 +1,15 @@
-import React from 'react'
+import React, { useRef, useEffect } from 'react'
+import {
+  View, Text, Platform, StyleSheet, TouchableOpacity, Animated, Dimensions,
+} from 'react-native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { NavigationContainer } from '@react-navigation/native'
-import { ActivityIndicator, View, Platform } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 
 import { useAuthStore } from '../lib/store'
 import { navigationRef } from '../lib/navigation'
+import { colors, radius, shadows } from '../lib/theme'
 
 // Auth screens
 import LoginScreen from '../screens/LoginScreen'
@@ -29,182 +32,319 @@ import CreateChannelScreen from '../screens/CreateChannelScreen'
 import CreateGroupScreen from '../screens/CreateGroupScreen'
 import InviteScreen from '../screens/InviteScreen'
 
+import ErrorBoundary from '../components/ErrorBoundary'
+import { PageSkeleton } from '../components/Skeleton'
+
 const Stack = createNativeStackNavigator()
 const Tab = createBottomTabNavigator()
 
-const screenOptions = {
-  headerStyle: { backgroundColor: '#1a1a2e' },
-  headerTintColor: '#fff',
-  headerTitleStyle: { fontWeight: '600' },
+// ─── Tab Configuration ─────────────────────────────────────────
+const TAB_CONFIG = [
+  { name: 'ChatsTab', label: 'Chats', icon: 'chatbubbles', iconFocused: 'chatbubbles' },
+  { name: 'ChannelsTab', label: 'Channels', icon: 'megaphone', iconFocused: 'megaphone' },
+  { name: 'GroupsTab', label: 'Groups', icon: 'people', iconFocused: 'people' },
+  { name: 'UpdatesTab', label: 'Updates', icon: 'cellular', iconFocused: 'cellular' },
+  { name: 'CallsTab', label: 'Calls', icon: 'call', iconFocused: 'call' },
+  { name: 'SettingsTab', label: 'Settings', icon: 'settings', iconFocused: 'settings' },
+]
+
+// ─── Get container width for pill positioning ─────────────────
+const { width: SCREEN_WIDTH } = Dimensions.get('window')
+const TAB_BAR_HORIZONTAL_MARGIN = 12
+const INNER_PADDING = 4
+const PILL_MARGIN = 4
+
+// ─── Animated Tab Bar ──────────────────────────────────────────
+function AnimatedTabBar({ state, descriptors, navigation }) {
+  const tabCount = state.routes.length
+  const pillAnim = useRef(new Animated.Value(0)).current
+  const prevIndex = useRef(state.index)
+
+  // Animate the pill when the active tab changes
+  useEffect(() => {
+    if (prevIndex.current !== state.index) {
+      Animated.spring(pillAnim, {
+        toValue: state.index,
+        friction: 8,
+        tension: 60,
+        useNativeDriver: false,
+      }).start()
+      prevIndex.current = state.index
+    }
+  }, [state.index, pillAnim])
+
+  // Calculate pill position using the animated value
+  const totalWidth = SCREEN_WIDTH - TAB_BAR_HORIZONTAL_MARGIN * 2 - INNER_PADDING
+  const pillWidth = totalWidth / tabCount
+  const pillLeft = pillAnim.interpolate({
+    inputRange: tabCount > 0
+      ? Array.from({ length: tabCount }, (_, i) => i)
+      : [0],
+    outputRange: tabCount > 0
+      ? Array.from({ length: tabCount }, (_, i) => i * pillWidth + PILL_MARGIN)
+      : [0],
+  })
+
+  return (
+    <View style={tabStyles.container}>
+      <View style={tabStyles.inner}>
+        {/* Animated pill indicator */}
+        <Animated.View
+          style={[
+            tabStyles.activePill,
+            {
+              width: pillWidth - PILL_MARGIN * 2,
+              transform: [{ translateX: pillLeft }],
+            },
+          ]}
+        />
+
+        {/* Tab items */}
+        {state.routes.map((route, index) => {
+          const { options } = descriptors[route.key]
+          const isFocused = state.index === index
+          const config = TAB_CONFIG[index] || TAB_CONFIG[0]
+          return (
+            <TabItem
+              key={route.key}
+              route={route}
+              isFocused={isFocused}
+              config={config}
+              options={options}
+              navigation={navigation}
+            />
+          )
+        })}
+      </View>
+    </View>
+  )
 }
 
-// ─── Auth Stack ──────────────────────────────────────────────
+// ─── Individual Tab Item with icon scale animation ────────────
+function TabItem({ route, isFocused, config, options, navigation }) {
+  const iconScale = useRef(new Animated.Value(isFocused ? 1.1 : 1)).current
+
+  useEffect(() => {
+    Animated.spring(iconScale, {
+      toValue: isFocused ? 1.1 : 1,
+      friction: 6,
+      tension: 100,
+      useNativeDriver: true,
+    }).start()
+  }, [isFocused, iconScale])
+
+  const onPress = () => {
+    const event = navigation.emit({
+      type: 'tabPress',
+      target: route.key,
+      canPreventDefault: true,
+    })
+    if (!isFocused && !event.defaultPrevented) {
+      navigation.navigate(route.name)
+    }
+  }
+
+  const onLongPress = () => {
+    navigation.emit({
+      type: 'tabLongPress',
+      target: route.key,
+    })
+  }
+
+  return (
+    <TouchableOpacity
+      accessibilityRole="button"
+      accessibilityState={isFocused ? { selected: true } : {}}
+      accessibilityLabel={options.tabBarAccessibilityLabel}
+      testID={options.tabBarTestID}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      activeOpacity={0.7}
+      style={tabStyles.tabItem}
+    >
+      <Animated.View style={{ transform: [{ scale: iconScale }] }}>
+        <Ionicons
+          name={isFocused ? config.icon : `${config.icon}-outline`}
+          size={22}
+          color={isFocused ? colors.primary : colors.textMuted}
+        />
+      </Animated.View>
+      <Text
+        style={[
+          tabStyles.tabLabel,
+          { color: isFocused ? colors.primary : colors.textMuted },
+        ]}
+      >
+        {config.label}
+      </Text>
+    </TouchableOpacity>
+  )
+}
+
+const tabStyles = StyleSheet.create({
+  container: {
+    backgroundColor: colors.bg,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 6,
+    paddingTop: 6,
+  },
+  inner: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    marginHorizontal: 12,
+    borderRadius: radius.xl,
+    paddingVertical: 4,
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadows.md,
+  },
+  activePill: {
+    position: 'absolute',
+    top: 4,
+    bottom: 4,
+    backgroundColor: 'rgba(108,99,255,0.12)',
+    borderRadius: radius.lg,
+  },
+  tabItem: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    gap: 2,
+  },
+  tabLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+})
+
+// ─── Stack Screen Options ──────────────────────────────────────
+const stackScreenOptions = {
+  headerStyle: { backgroundColor: colors.bgSecondary },
+  headerTintColor: colors.textPrimary,
+  headerTitleStyle: { fontWeight: '600', fontSize: 17 },
+  headerShadowVisible: false,
+  contentStyle: { backgroundColor: colors.bg },
+  animation: 'slide_from_right',
+}
+
+// ─── Auth Stack ────────────────────────────────────────────────
 function AuthStack() {
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="Login" component={LoginScreen} options={{ title: 'ChatBuddy' }} />
-      <Stack.Screen name="Register" component={RegisterScreen} options={{ title: 'Create Account' }} />
+    <Stack.Navigator screenOptions={{ ...stackScreenOptions, headerShown: false }}>
+      <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="Register" component={RegisterScreen} />
     </Stack.Navigator>
   )
 }
 
-// ─── Chats Tab ───────────────────────────────────────────────
+// ─── Chats Tab ─────────────────────────────────────────────────
 function ChatsStack() {
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="ChatsList" component={ChatsListScreen} options={{ title: 'ChatBuddy' }} />
-      <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
-    </Stack.Navigator>
+    <ErrorBoundary name="Chats">
+      <Stack.Navigator screenOptions={stackScreenOptions}>
+        <Stack.Screen
+          name="ChatsList"
+          component={ChatsListScreen}
+          options={{ title: 'ChatBuddy', headerLargeTitle: true }}
+        />
+        <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
+      </Stack.Navigator>
+    </ErrorBoundary>
   )
 }
 
-// ─── Channels Tab ────────────────────────────────────────────
+// ─── Channels Tab ──────────────────────────────────────────────
 function ChannelsStack() {
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="ChannelsList" component={ChannelsListScreen} options={{ title: 'Channels' }} />
-      <Stack.Screen name="ChannelView" component={ChannelViewScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="CreateChannel" component={CreateChannelScreen} options={{ title: 'New Channel' }} />
-      <Stack.Screen name="Invite" component={InviteScreen} options={{ title: 'Join Channel' }} />
-    </Stack.Navigator>
+    <ErrorBoundary name="Channels">
+      <Stack.Navigator screenOptions={stackScreenOptions}>
+        <Stack.Screen name="ChannelsList" component={ChannelsListScreen} options={{ title: 'Channels' }} />
+        <Stack.Screen name="ChannelView" component={ChannelViewScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="CreateChannel" component={CreateChannelScreen} options={{ title: 'New Channel' }} />
+        <Stack.Screen name="Invite" component={InviteScreen} options={{ title: 'Join Channel' }} />
+      </Stack.Navigator>
+    </ErrorBoundary>
   )
 }
 
-// ─── Groups Tab ──────────────────────────────────────────────
+// ─── Groups Tab ────────────────────────────────────────────────
 function GroupsStack() {
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="GroupsList" component={GroupsListScreen} options={{ title: 'Groups' }} />
-      <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="GroupInfo" component={GroupInfoScreen} options={{ title: 'Group Info' }} />
-      <Stack.Screen name="CreateGroup" component={CreateGroupScreen} options={{ title: 'New Group' }} />
-      <Stack.Screen name="Invite" component={InviteScreen} options={{ title: 'Join Group' }} />
-    </Stack.Navigator>
+    <ErrorBoundary name="Groups">
+      <Stack.Navigator screenOptions={stackScreenOptions}>
+        <Stack.Screen name="GroupsList" component={GroupsListScreen} options={{ title: 'Groups' }} />
+        <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
+        <Stack.Screen name="GroupInfo" component={GroupInfoScreen} options={{ title: 'Group Info' }} />
+        <Stack.Screen name="CreateGroup" component={CreateGroupScreen} options={{ title: 'New Group' }} />
+        <Stack.Screen name="Invite" component={InviteScreen} options={{ title: 'Join Group' }} />
+      </Stack.Navigator>
+    </ErrorBoundary>
   )
 }
 
-// ─── Updates Tab ─────────────────────────────────────────────
+// ─── Updates Tab ───────────────────────────────────────────────
 function UpdatesStack() {
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="UpdatesList" component={UpdatesScreen} options={{ title: 'Updates' }} />
-    </Stack.Navigator>
+    <ErrorBoundary name="Updates">
+      <Stack.Navigator screenOptions={stackScreenOptions}>
+        <Stack.Screen name="UpdatesList" component={UpdatesScreen} options={{ title: 'Updates' }} />
+      </Stack.Navigator>
+    </ErrorBoundary>
   )
 }
 
-// ─── Calls Tab ───────────────────────────────────────────────
+// ─── Calls Tab ─────────────────────────────────────────────────
 function CallsStack() {
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="CallsList" component={CallsScreen} options={{ title: 'Calls' }} />
-    </Stack.Navigator>
+    <ErrorBoundary name="Calls">
+      <Stack.Navigator screenOptions={stackScreenOptions}>
+        <Stack.Screen name="CallsList" component={CallsScreen} options={{ title: 'Calls' }} />
+      </Stack.Navigator>
+    </ErrorBoundary>
   )
 }
 
-// ─── Settings Tab ────────────────────────────────────────────
+// ─── Settings Tab ──────────────────────────────────────────────
 function SettingsStack() {
   return (
-    <Stack.Navigator screenOptions={screenOptions}>
-      <Stack.Screen name="SettingsHome" component={SettingsScreen} options={{ title: 'Settings' }} />
-      <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
-    </Stack.Navigator>
+    <ErrorBoundary name="Settings">
+      <Stack.Navigator screenOptions={stackScreenOptions}>
+        <Stack.Screen name="SettingsHome" component={SettingsScreen} options={{ title: 'Settings' }} />
+        <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
+      </Stack.Navigator>
+    </ErrorBoundary>
   )
 }
 
-// ─── Tab Icon Helper ─────────────────────────────────────────
-function TabIcon({ name, focused }) {
-  return (
-    <Ionicons
-      name={focused ? name : `${name}-outline`}
-      size={22}
-      color={focused ? '#6c63ff' : '#666'}
-    />
-  )
-}
-
-// ─── Main Bottom Tabs ────────────────────────────────────────
+// ─── Main Bottom Tabs ──────────────────────────────────────────
 function MainTabs() {
   return (
     <Tab.Navigator
+      tabBar={(props) => <AnimatedTabBar {...props} />}
       screenOptions={{
         headerShown: false,
-        tabBarStyle: {
-          backgroundColor: '#16213e',
-          borderTopColor: '#2a2a4a',
-          borderTopWidth: 0.5,
-          paddingBottom: Platform.OS === 'ios' ? 20 : 8,
-          paddingTop: 8,
-          height: Platform.OS === 'ios' ? 85 : 65,
-        },
-        tabBarActiveTintColor: '#6c63ff',
-        tabBarInactiveTintColor: '#666',
-        tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: '500',
-        },
       }}
     >
-      <Tab.Screen
-        name="ChatsTab"
-        component={ChatsStack}
-        options={{
-          tabBarLabel: 'Chats',
-          tabBarIcon: ({ focused }) => <TabIcon name="chatbubbles" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="ChannelsTab"
-        component={ChannelsStack}
-        options={{
-          tabBarLabel: 'Channels',
-          tabBarIcon: ({ focused }) => <TabIcon name="megaphone" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="GroupsTab"
-        component={GroupsStack}
-        options={{
-          tabBarLabel: 'Groups',
-          tabBarIcon: ({ focused }) => <TabIcon name="people" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="UpdatesTab"
-        component={UpdatesStack}
-        options={{
-          tabBarLabel: 'Updates',
-          tabBarIcon: ({ focused }) => <TabIcon name="cellular" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="CallsTab"
-        component={CallsStack}
-        options={{
-          tabBarLabel: 'Calls',
-          tabBarIcon: ({ focused }) => <TabIcon name="call" focused={focused} />,
-        }}
-      />
-      <Tab.Screen
-        name="SettingsTab"
-        component={SettingsStack}
-        options={{
-          tabBarLabel: 'Settings',
-          tabBarIcon: ({ focused }) => <TabIcon name="settings" focused={focused} />,
-        }}
-      />
+      <Tab.Screen name="ChatsTab" component={ChatsStack} />
+      <Tab.Screen name="ChannelsTab" component={ChannelsStack} />
+      <Tab.Screen name="GroupsTab" component={GroupsStack} />
+      <Tab.Screen name="UpdatesTab" component={UpdatesStack} />
+      <Tab.Screen name="CallsTab" component={CallsStack} />
+      <Tab.Screen name="SettingsTab" component={SettingsStack} />
     </Tab.Navigator>
   )
 }
 
-// ─── Root Navigator ──────────────────────────────────────────
+// ─── Root Navigator ────────────────────────────────────────────
 export default function AppNavigator() {
   const { session, loading } = useAuthStore()
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#1a1a2e' }}>
-        <ActivityIndicator size="large" color="#6c63ff" />
+      <View style={{ flex: 1, backgroundColor: colors.bg }}>
+        <PageSkeleton type="list" />
       </View>
     )
   }
