@@ -1,13 +1,14 @@
-import React, { useState } from 'react'
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, FlatList } from 'react-native'
+import React, { useState, useMemo } from 'react'
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, FlatList } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
-import { colors, radius } from '../lib/theme'
+import { useColors, radius } from '../lib/theme'
 import Button from '../components/Button'
 import { useToast } from '../components/Toast'
 
 export default function CreateGroupScreen({ navigation }) {
+  const colors = useColors()
   const user = useAuthStore((s) => s.user)
   const [name, setName] = useState('')
   const [step, setStep] = useState('create')
@@ -85,7 +86,7 @@ export default function CreateGroupScreen({ navigation }) {
   )
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   doneCont: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
   doneTitle: { color: colors.textPrimary, fontSize: 24, fontWeight: '700', marginTop: 16, marginBottom: 32 },

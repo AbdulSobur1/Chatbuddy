@@ -1,13 +1,14 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
-import { colors, radius } from '../lib/theme'
+import { useColors, radius } from '../lib/theme'
 import Button from '../components/Button'
 import { useToast } from '../components/Toast'
 
 export default function InviteScreen({ navigation }) {
+  const colors = useColors()
   const user = useAuthStore((s) => s.user)
   const [inviteCode, setInviteCode] = useState('')
   const [joining, setJoining] = useState(false)
@@ -33,6 +34,8 @@ export default function InviteScreen({ navigation }) {
     } catch { toast.show('Failed to join', 'error') } finally { setJoining(false) }
   }
 
+  const styles = useMemo(() => makeStyles(colors), [colors])
+
   return (
     <View style={styles.container}>
       <View style={{ alignItems: 'center', paddingHorizontal: 32 }}>
@@ -47,7 +50,7 @@ export default function InviteScreen({ navigation }) {
   )
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg, justifyContent: 'center' },
   codeInput: { backgroundColor: colors.surface, borderRadius: radius.lg, padding: 20, fontSize: 32, color: colors.textPrimary, borderWidth: 2, borderColor: colors.border, width: '100%', textAlign: 'center', letterSpacing: 8, marginBottom: 24 },
 })

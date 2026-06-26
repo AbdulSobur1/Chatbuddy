@@ -1,13 +1,14 @@
-import React, { useState } from 'react'
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native'
+import React, { useState, useMemo } from 'react'
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
-import { colors, radius } from '../lib/theme'
+import { useColors, radius } from '../lib/theme'
 import Button from '../components/Button'
 import { useToast } from '../components/Toast'
 
 export default function CreateChannelScreen({ navigation }) {
+  const colors = useColors()
   const user = useAuthStore((s) => s.user)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -24,6 +25,8 @@ export default function CreateChannelScreen({ navigation }) {
       navigation.goBack()
     } catch (e) { toast.show(e.message, 'error') } finally { setCreating(false) }
   }
+
+  const styles = useMemo(() => makeStyles(colors), [colors])
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -42,7 +45,7 @@ export default function CreateChannelScreen({ navigation }) {
   )
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   input: { backgroundColor: colors.surface, borderRadius: radius.md, padding: 14, fontSize: 16, color: colors.textPrimary, borderWidth: 1, borderColor: colors.border },
 })

@@ -1,15 +1,16 @@
-import React, { useState, useCallback, useEffect } from 'react'
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native'
+import React, { useState, useCallback, useEffect, useMemo } from 'react'
+import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
-import { colors, radius } from '../lib/theme'
+import { useColors, radius } from '../lib/theme'
 import Avatar from '../components/Avatar'
 import { ListItemSkeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 
 export default function GroupsListScreen({ navigation }) {
+  const colors = useColors()
   const user = useAuthStore((s) => s.user)
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
@@ -56,6 +57,8 @@ export default function GroupsListScreen({ navigation }) {
     )
   }
 
+  const styles = useMemo(() => makeStyles(colors), [colors])
+
   return (
     <View style={styles.container}>
       <View style={styles.btnRow}>
@@ -82,7 +85,7 @@ export default function GroupsListScreen({ navigation }) {
   )
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   skel: { paddingTop: 8 },

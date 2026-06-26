@@ -1,15 +1,39 @@
-import React from 'react'
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native'
+import React, { useEffect, useState } from 'react'
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Switch, Alert } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuthStore } from '../lib/store'
-import { colors, radius, shadows } from '../lib/theme'
+import { useColors, colors as staticColors, radius, setThemeMode, getThemeMode, setAccentColor, getAccentColor, ACCENT_PRESETS } from '../lib/theme'
+import { getSoundsEnabled, setSoundsEnabled } from '../lib/sounds'
 import Avatar from '../components/Avatar'
 import { useToast } from '../components/Toast'
 
 export default function SettingsScreen({ navigation }) {
   const signOut = useAuthStore((s) => s.signOut)
   const user = useAuthStore((s) => s.user)
+  const colors = useColors()
   const toast = useToast()
+  const [darkMode, setDarkMode] = useState(getThemeMode() !== 'light')
+  const [selectedAccent, setSelectedAccent] = useState(getAccentColor())
+  const [typingSounds, setTypingSounds] = useState(getSoundsEnabled())
+
+  const toggleDarkMode = (value) => {
+    setDarkMode(value)
+    setThemeMode(value ? 'dark' : 'light')
+    toast.show(value ? 'Dark mode enabled' : 'Light mode enabled', 'success')
+  }
+
+  const handleAccentPick = (hex) => {
+    const newAccent = hex === '#6c63ff' ? null : hex // null = default (purple)
+    setSelectedAccent(newAccent)
+    setAccentColor(newAccent)
+    toast.show('Accent color updated!', 'success')
+  }
+
+  const toggleTypingSounds = (value) => {
+    setTypingSounds(value)
+    setSoundsEnabled(value)
+    toast.show(value ? 'Typing sounds on' : 'Typing sounds off', 'info')
+  }
 
   const handleLogout = () => {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -29,8 +53,9 @@ export default function SettingsScreen({ navigation }) {
     },
     {
       title: 'Appearance',
-      items: [
-        { icon: 'moon-outline', label: 'Dark Mode', subtitle: 'Currently enabled', color: '#9b59b6', disabled: true, soon: true },
+      items: [          { icon: 'moon-outline', label: 'Dark Mode', subtitle: 'Toggle dark and light theme', color: '#9b59b6', toggle: true, value: darkMode, onToggle: toggleDarkMode },
+        { icon: 'color-palette-outline', label: 'Accent Color', subtitle: selectedAccent ? (ACCENT_PRESETS.find(p => p.hex === selectedAccent)?.name || 'Custom') : 'Default (Purple)', color: selectedAccent || colors.primary, accentPicker: true },
+        { icon: 'musical-notes-outline', label: 'Typing Sounds', subtitle: 'Play a sound when someone types', color: '#e67e22', toggle: true, value: typingSounds, onToggle: toggleTypingSounds },
         { icon: 'text-outline', label: 'Font Size', subtitle: 'Default', color: colors.info, disabled: true, soon: true },
       ],
     },
@@ -46,37 +71,83 @@ export default function SettingsScreen({ navigation }) {
   const displayName = user?.user_metadata?.display_name || 'User'
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView style={{ flex: 1, backgroundColor: colors.bg }} showsVerticalScrollIndicator={false}>
       {/* Profile Card */}
-      <TouchableOpacity style={styles.profileCard} onPress={() => navigation.navigate('Profile')} activeOpacity={0.7}>
+      <TouchableOpacity
+        style={{
+          flexDirection: 'row', alignItems: 'center',
+          backgroundColor: colors.surface, marginHorizontal: 16, marginTop: 16,
+          borderRadius: radius.lg, padding: 16, marginBottom: 24,
+          borderWidth: 1, borderColor: colors.border,
+        }}
+        onPress={() => navigation.navigate('Profile')}
+        activeOpacity={0.7}
+      >
         <Avatar name={displayName} size="xl" />
-        <View style={styles.profileInfo}>
-          <Text style={styles.profileName}>{displayName}</Text>
-          <Text style={styles.profileStatus}>{user?.email || 'No email'}</Text>
+        <View style={{ flex: 1, marginLeft: 14 }}>
+          <Text style={{ color: colors.textPrimary, fontSize: 18, fontWeight: '600' }}>{displayName}</Text>
+          <Text style={{ color: colors.textMuted, fontSize: 13, marginTop: 2 }}>{user?.email || 'No email'}</Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
       </TouchableOpacity>
 
       {/* Menu Sections */}
       {menuSections.map((section, sIdx) => (
-        <View key={sIdx} style={styles.section}>
-          <Text style={styles.sectionTitle}>{section.title}</Text>
-          <View style={styles.sectionCard}>
+        <View key={sIdx} style={{ marginBottom: 24, paddingHorizontal: 16 }}>
+          <Text style={{
+            color: colors.textMuted, fontSize: 13, fontWeight: '600',
+            textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10, marginLeft: 4,
+          }}>
+            {section.title}
+          </Text>
+          <View style={{ backgroundColor: colors.surface, borderRadius: radius.md, overflow: 'hidden' }}>
             {section.items.map((item, iIdx) => (
               <TouchableOpacity
                 key={iIdx}
-                style={[styles.menuItem, iIdx < section.items.length - 1 && styles.menuItemBorder, item.disabled && styles.menuItemDisabled]}
-                onPress={item.onPress || (() => toast.show(`${item.label} coming soon!`, 'info'))}
-                disabled={item.disabled}
+                style={[
+                  {
+                    flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16,
+                  },
+                  iIdx < section.items.length - 1 && { borderBottomWidth: 0.5, borderBottomColor: colors.border },
+                  item.disabled && { opacity: 0.5 },
+                ]}
+                onPress={item.toggle ? null : (item.onPress || (() => toast.show(`${item.label} coming soon!`, 'info')))}
+                disabled={item.disabled && !item.toggle}
               >
-                <View style={[styles.menuIcon, { backgroundColor: `${item.color}20` }]}>
+                <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: `${item.color}20`, justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
                   <Ionicons name={item.icon} size={20} color={item.color} />
                 </View>
-                <View style={styles.menuContent}>
-                  <Text style={styles.menuLabel}>{item.label}</Text>
-                  <Text style={styles.menuSubtitle}>{item.subtitle}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '500' }}>{item.label}</Text>
+                  <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>{item.subtitle}</Text>
                 </View>
-                {item.soon ? <Text style={styles.comingSoon}>Soon</Text> : <Ionicons name="chevron-forward" size={18} color={colors.textDisabled} />}
+                {item.toggle ? (
+                  <Switch
+                    value={item.value}
+                    onValueChange={item.onToggle}
+                    trackColor={{ false: colors.border, true: `${colors.primary}60` }}
+                    thumbColor={item.value ? colors.primary : colors.textMuted}
+                  />
+                ) : item.accentPicker ? (
+                  <View style={{ flexDirection: 'row', gap: 4 }}>
+                    {ACCENT_PRESETS.slice(0, 5).map((p) => (
+                      <TouchableOpacity
+                        key={p.hex}
+                        onPress={() => handleAccentPick(p.hex)}
+                        style={{
+                          width: 24, height: 24, borderRadius: 12,
+                          backgroundColor: p.hex,
+                          borderWidth: (selectedAccent === p.hex || (!selectedAccent && p.hex === '#6c63ff')) ? 2.5 : 0,
+                          borderColor: '#fff',
+                        }}
+                      />
+                    ))}
+                  </View>
+                ) : item.soon ? (
+                  <Text style={{ color: colors.textMuted, fontSize: 12, fontStyle: 'italic' }}>Soon</Text>
+                ) : (
+                  <Ionicons name="chevron-forward" size={18} color={colors.textDisabled} />
+                )}
               </TouchableOpacity>
             ))}
           </View>
@@ -84,69 +155,46 @@ export default function SettingsScreen({ navigation }) {
       ))}
 
       {/* About */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>About</Text>
-        <View style={styles.sectionCard}>
-          <View style={[styles.menuItem, styles.menuItemBorder]}>
-            <View style={[styles.menuIcon, { backgroundColor: `${colors.primary}20` }]}>
+      <View style={{ marginBottom: 24, paddingHorizontal: 16 }}>
+        <Text style={{
+          color: colors.textMuted, fontSize: 13, fontWeight: '600',
+          textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10, marginLeft: 4,
+        }}>About</Text>
+        <View style={{ backgroundColor: colors.surface, borderRadius: radius.md, overflow: 'hidden' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderBottomWidth: 0.5, borderBottomColor: colors.border }}>
+            <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: `${colors.primary}20`, justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
               <Ionicons name="information-circle-outline" size={20} color={colors.primary} />
             </View>
-            <View style={styles.menuContent}>
-              <Text style={styles.menuLabel}>Version</Text>
-              <Text style={styles.menuSubtitle}>1.0.0</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '500' }}>Version</Text>
+              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>1.0.0</Text>
             </View>
           </View>
-          <View style={styles.menuItem}>
-            <View style={[styles.menuIcon, { backgroundColor: `${colors.primary}20` }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16 }}>
+            <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: `${colors.primary}20`, justifyContent: 'center', alignItems: 'center', marginRight: 12 }}>
               <Ionicons name="code-slash-outline" size={20} color={colors.primary} />
             </View>
-            <View style={styles.menuContent}>
-              <Text style={styles.menuLabel}>Built with</Text>
-              <Text style={styles.menuSubtitle}>React Native • Expo • Supabase</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: colors.textPrimary, fontSize: 15, fontWeight: '500' }}>Built with</Text>
+              <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 2 }}>React Native • Expo • Supabase</Text>
             </View>
           </View>
         </View>
       </View>
 
       {/* Logout */}
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+      <TouchableOpacity
+        style={{
+          flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+          gap: 8, paddingVertical: 16, marginHorizontal: 16,
+          backgroundColor: `${colors.danger}15`, borderRadius: radius.md,
+        }}
+        onPress={handleLogout}
+      >
         <Ionicons name="log-out-outline" size={22} color={colors.danger} />
-        <Text style={styles.logoutText}>Sign Out</Text>
+        <Text style={{ color: colors.danger, fontSize: 16, fontWeight: '500' }}>Sign Out</Text>
       </TouchableOpacity>
       <View style={{ height: 40 }} />
     </ScrollView>
   )
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg },
-  profileCard: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: colors.surface, marginHorizontal: 16, marginTop: 16,
-    borderRadius: radius.lg, padding: 16, marginBottom: 24,
-    borderWidth: 1, borderColor: colors.border,
-  },
-  profileInfo: { flex: 1, marginLeft: 14 },
-  profileName: { color: colors.textPrimary, fontSize: 18, fontWeight: '600' },
-  profileStatus: { color: colors.textMuted, fontSize: 13, marginTop: 2 },
-  section: { marginBottom: 24, paddingHorizontal: 16 },
-  sectionTitle: {
-    color: colors.textMuted, fontSize: 13, fontWeight: '600',
-    textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10, marginLeft: 4,
-  },
-  sectionCard: { backgroundColor: colors.surface, borderRadius: radius.md, overflow: 'hidden' },
-  menuItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16 },
-  menuItemBorder: { borderBottomWidth: 0.5, borderBottomColor: colors.border },
-  menuItemDisabled: { opacity: 0.5 },
-  menuIcon: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  menuContent: { flex: 1 },
-  menuLabel: { color: colors.textPrimary, fontSize: 15, fontWeight: '500' },
-  menuSubtitle: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
-  comingSoon: { color: colors.textMuted, fontSize: 12, fontStyle: 'italic' },
-  logoutButton: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, paddingVertical: 16, marginHorizontal: 16,
-    backgroundColor: `${colors.danger}15`, borderRadius: radius.md,
-  },
-  logoutText: { color: colors.danger, fontSize: 16, fontWeight: '500' },
-})

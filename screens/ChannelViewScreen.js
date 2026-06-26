@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, SafeAreaView, ActivityIndicator } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
-import { colors } from '../lib/theme'
+import { useColors } from '../lib/theme'
 
 export default function ChannelViewScreen({ route, navigation }) {
+  const colors = useColors()
   const { channel } = route.params
   const user = useAuthStore((s) => s.user)
   const [messages, setMessages] = useState([])
@@ -51,6 +52,8 @@ export default function ChannelViewScreen({ route, navigation }) {
     </View>
   )
 
+  const styles = useMemo(() => makeStyles(colors), [colors])
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -76,7 +79,7 @@ export default function ChannelViewScreen({ route, navigation }) {
   )
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 12, backgroundColor: colors.surface, borderBottomWidth: 0.5, borderBottomColor: colors.border },
   followBtn: { borderRadius: 8, borderWidth: 1, borderColor: colors.primary, paddingVertical: 6, paddingHorizontal: 14, marginRight: 4 },

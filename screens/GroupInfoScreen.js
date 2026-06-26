@@ -1,13 +1,14 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, Modal, ActivityIndicator, Alert } from 'react-native'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuthStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
-import { colors, radius } from '../lib/theme'
+import { useColors, radius } from '../lib/theme'
 import Avatar from '../components/Avatar'
 import { useToast } from '../components/Toast'
 
 export default function GroupInfoScreen({ route, navigation }) {
+  const colors = useColors()
   const { channel } = route.params
   const user = useAuthStore((s) => s.user)
   const [members, setMembers] = useState([])
@@ -70,6 +71,8 @@ export default function GroupInfoScreen({ route, navigation }) {
     </View>
   )
 
+  const styles = useMemo(() => makeStyles(colors), [colors])
+
   if (loading) return <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}><ActivityIndicator size="large" color={colors.primary} /></View>
 
   return (
@@ -111,7 +114,7 @@ export default function GroupInfoScreen({ route, navigation }) {
   )
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   memberItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, paddingHorizontal: 8, borderBottomWidth: 0.5, borderBottomColor: colors.border },
 })

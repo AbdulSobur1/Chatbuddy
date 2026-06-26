@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useMemo } from 'react'
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, Alert, TextInput, Modal, ScrollView,
@@ -9,7 +9,7 @@ import { useFocusEffect } from '@react-navigation/native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../lib/supabase'
 import { useAuthStore, useMessagesStore } from '../lib/store'
-import { colors, radius, shadows } from '../lib/theme'
+import { useColors, radius, shadows } from '../lib/theme'
 import { useToast } from '../components/Toast'
 import { StorySkeleton } from '../components/Skeleton'
 
@@ -18,6 +18,7 @@ const AVATAR_SIZE = 64
 const RING_SIZE = AVATAR_SIZE + 8
 
 export default function UpdatesScreen({ navigation }) {
+  const colors = useColors()
   const user = useAuthStore((s) => s.user)
   const uploadFile = useMessagesStore((s) => s.uploadFile)
   const [myStatuses, setMyStatuses] = useState([])
@@ -36,6 +37,8 @@ export default function UpdatesScreen({ navigation }) {
   const [viewingUser, setViewingUser] = useState(null)
   const [currentStatusIndex, setCurrentStatusIndex] = useState(0)
   const [viewerNames, setViewerNames] = useState('')
+  const styles = useMemo(() => makeStyles(colors), [colors])
+
   const [viewedIds, setViewedIds] = useState(new Set())
 
   useFocusEffect(
@@ -598,7 +601,7 @@ export default function UpdatesScreen({ navigation }) {
   )
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   listContent: { paddingBottom: 80 },

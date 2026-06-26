@@ -1,15 +1,16 @@
-import React, { useState, useCallback } from 'react'
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, Modal, TextInput } from 'react-native'
+import React, { useState, useCallback, useMemo } from 'react'
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, TextInput } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
-import { colors, radius } from '../lib/theme'
+import { useColors, radius } from '../lib/theme'
 import Avatar from '../components/Avatar'
 import { ListItemSkeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 
 export default function CallsScreen() {
+  const colors = useColors()
   const user = useAuthStore((s) => s.user)
   const [calls, setCalls] = useState([])
   const [loading, setLoading] = useState(true)
@@ -66,6 +67,8 @@ export default function CallsScreen() {
     return (<TouchableOpacity style={styles.item}><View style={styles.av}><Text style={styles.avText}>{name.charAt(0).toUpperCase()}</Text></View><View style={styles.info}><View style={styles.row}><Ionicons name={icon} size={14} color={iconColor} /><Text style={styles.name}>{name}</Text></View><Text style={styles.label}>{label}</Text></View><View style={styles.meta}><Text style={styles.time}>{formatDate(item.started_at)}</Text><Ionicons name={type === 'video' ? 'videocam-outline' : 'call-outline'} size={20} color={colors.primary} /></View></TouchableOpacity>)
   }
 
+  const styles = useMemo(() => makeStyles(colors), [colors])
+
   return (
     <View style={styles.container}>
       <View style={styles.btnRow}>
@@ -92,7 +95,7 @@ export default function CallsScreen() {
   )
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg }, center: { flex: 1, justifyContent: 'center', alignItems: 'center' }, skel: { paddingTop: 8 },
   btnRow: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: colors.border },
   actionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.surface, borderRadius: radius.md, paddingVertical: 12, paddingHorizontal: 16, borderWidth: 1, borderColor: colors.border },

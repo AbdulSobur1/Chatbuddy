@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useMemo } from 'react'
 import {
   View, Text, Platform, StyleSheet, TouchableOpacity, Animated, Dimensions,
 } from 'react-native'
@@ -9,7 +9,7 @@ import { Ionicons } from '@expo/vector-icons'
 
 import { useAuthStore } from '../lib/store'
 import { navigationRef } from '../lib/navigation'
-import { colors, radius, shadows } from '../lib/theme'
+import { useColors, radius, shadows } from '../lib/theme'
 
 // Auth screens
 import LoginScreen from '../screens/LoginScreen'
@@ -56,11 +56,11 @@ const PILL_MARGIN = 4
 
 // ─── Animated Tab Bar ──────────────────────────────────────────
 function AnimatedTabBar({ state, descriptors, navigation }) {
+  const colors = useColors()
   const tabCount = state.routes.length
   const pillAnim = useRef(new Animated.Value(0)).current
   const prevIndex = useRef(state.index)
 
-  // Animate the pill when the active tab changes
   useEffect(() => {
     if (prevIndex.current !== state.index) {
       Animated.spring(pillAnim, {
@@ -73,7 +73,6 @@ function AnimatedTabBar({ state, descriptors, navigation }) {
     }
   }, [state.index, pillAnim])
 
-  // Calculate pill position using the animated value
   const totalWidth = SCREEN_WIDTH - TAB_BAR_HORIZONTAL_MARGIN * 2 - INNER_PADDING
   const pillWidth = totalWidth / tabCount
   const pillLeft = pillAnim.interpolate({
@@ -85,21 +84,27 @@ function AnimatedTabBar({ state, descriptors, navigation }) {
       : [0],
   })
 
-  return (
-    <View style={tabStyles.container}>
-      <View style={tabStyles.inner}>
-        {/* Animated pill indicator */}
-        <Animated.View
-          style={[
-            tabStyles.activePill,
-            {
-              width: pillWidth - PILL_MARGIN * 2,
-              transform: [{ translateX: pillLeft }],
-            },
-          ]}
-        />
+  const styles = useMemo(() => StyleSheet.create({
+    container: { backgroundColor: colors.bg, paddingBottom: Platform.OS === 'ios' ? 20 : 6, paddingTop: 6 },
+    inner: {
+      flexDirection: 'row', backgroundColor: colors.surface, marginHorizontal: 12,
+      borderRadius: radius.xl, paddingVertical: 4, position: 'relative',
+      borderWidth: 1, borderColor: colors.border, ...shadows.md,
+    },
+    activePill: {
+      position: 'absolute', top: 4, bottom: 4,
+      backgroundColor: `${colors.primary}18`, borderRadius: radius.lg,
+    },
+    tabItem: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 8, gap: 2 },
+    tabLabel: { fontSize: 10, fontWeight: '600' },
+  }), [colors])
 
-        {/* Tab items */}
+  return (
+    <View style={styles.container}>
+      <View style={styles.inner}>
+        <Animated.View
+          style={[styles.activePill, { width: pillWidth - PILL_MARGIN * 2, transform: [{ translateX: pillLeft }] }]}
+        />
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key]
           const isFocused = state.index === index
@@ -112,6 +117,7 @@ function AnimatedTabBar({ state, descriptors, navigation }) {
               config={config}
               options={options}
               navigation={navigation}
+              colors={colors}
             />
           )
         })}
@@ -120,8 +126,8 @@ function AnimatedTabBar({ state, descriptors, navigation }) {
   )
 }
 
-// ─── Individual Tab Item with icon scale animation ────────────
-function TabItem({ route, isFocused, config, options, navigation }) {
+// ─── Individual Tab Item ────────────────────────────────────────
+function TabItem({ route, isFocused, config, options, navigation, colors }) {
   const iconScale = useRef(new Animated.Value(isFocused ? 1.1 : 1)).current
 
   useEffect(() => {
@@ -134,33 +140,18 @@ function TabItem({ route, isFocused, config, options, navigation }) {
   }, [isFocused, iconScale])
 
   const onPress = () => {
-    const event = navigation.emit({
-      type: 'tabPress',
-      target: route.key,
-      canPreventDefault: true,
-    })
-    if (!isFocused && !event.defaultPrevented) {
-      navigation.navigate(route.name)
-    }
-  }
-
-  const onLongPress = () => {
-    navigation.emit({
-      type: 'tabLongPress',
-      target: route.key,
-    })
+    const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true })
+    if (!isFocused && !event.defaultPrevented) navigation.navigate(route.name)
   }
 
   return (
     <TouchableOpacity
       accessibilityRole="button"
       accessibilityState={isFocused ? { selected: true } : {}}
-      accessibilityLabel={options.tabBarAccessibilityLabel}
-      testID={options.tabBarTestID}
       onPress={onPress}
-      onLongPress={onLongPress}
+      onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
       activeOpacity={0.7}
-      style={tabStyles.tabItem}
+      style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 8, gap: 2 }}
     >
       <Animated.View style={{ transform: [{ scale: iconScale }] }}>
         <Ionicons
@@ -169,69 +160,33 @@ function TabItem({ route, isFocused, config, options, navigation }) {
           color={isFocused ? colors.primary : colors.textMuted}
         />
       </Animated.View>
-      <Text
-        style={[
-          tabStyles.tabLabel,
-          { color: isFocused ? colors.primary : colors.textMuted },
-        ]}
-      >
+      <Text style={{ fontSize: 10, fontWeight: '600', color: isFocused ? colors.primary : colors.textMuted }}>
         {config.label}
       </Text>
     </TouchableOpacity>
   )
 }
 
-const tabStyles = StyleSheet.create({
-  container: {
-    backgroundColor: colors.bg,
-    paddingBottom: Platform.OS === 'ios' ? 20 : 6,
-    paddingTop: 6,
-  },
-  inner: {
-    flexDirection: 'row',
-    backgroundColor: colors.surface,
-    marginHorizontal: 12,
-    borderRadius: radius.xl,
-    paddingVertical: 4,
-    position: 'relative',
-    borderWidth: 1,
-    borderColor: colors.border,
-    ...shadows.md,
-  },
-  activePill: {
-    position: 'absolute',
-    top: 4,
-    bottom: 4,
-    backgroundColor: 'rgba(108,99,255,0.12)',
-    borderRadius: radius.lg,
-  },
-  tabItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
-    gap: 2,
-  },
-  tabLabel: {
-    fontSize: 10,
-    fontWeight: '600',
-  },
-})
+// ─── Theme-aware Stack Navigator factory ───────────────────────
+function ThemeStacks() {
+  const colors = useColors()
 
-// ─── Stack Screen Options ──────────────────────────────────────
-const stackScreenOptions = {
-  headerStyle: { backgroundColor: colors.bgSecondary },
-  headerTintColor: colors.textPrimary,
-  headerTitleStyle: { fontWeight: '600', fontSize: 17 },
-  headerShadowVisible: false,
-  contentStyle: { backgroundColor: colors.bg },
-  animation: 'slide_from_right',
+  const stackScreenOptions = useMemo(() => ({
+    headerStyle: { backgroundColor: colors.bgSecondary },
+    headerTintColor: colors.textPrimary,
+    headerTitleStyle: { fontWeight: '600', fontSize: 17 },
+    headerShadowVisible: false,
+    contentStyle: { backgroundColor: colors.bg },
+    animation: 'slide_from_right',
+  }), [colors])
+
+  return { stackScreenOptions }
 }
 
 // ─── Auth Stack ────────────────────────────────────────────────
-function AuthStack() {
+function AuthStack({ screenOptions }) {
   return (
-    <Stack.Navigator screenOptions={{ ...stackScreenOptions, headerShown: false }}>
+    <Stack.Navigator screenOptions={{ ...screenOptions, headerShown: false }}>
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
     </Stack.Navigator>
@@ -239,15 +194,11 @@ function AuthStack() {
 }
 
 // ─── Chats Tab ─────────────────────────────────────────────────
-function ChatsStack() {
+function ChatsStack({ screenOptions }) {
   return (
     <ErrorBoundary name="Chats">
-      <Stack.Navigator screenOptions={stackScreenOptions}>
-        <Stack.Screen
-          name="ChatsList"
-          component={ChatsListScreen}
-          options={{ title: 'ChatBuddy', headerLargeTitle: true }}
-        />
+      <Stack.Navigator screenOptions={screenOptions}>
+        <Stack.Screen name="ChatsList" component={ChatsListScreen} options={{ title: 'ChatBuddy', headerLargeTitle: true }} />
         <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
       </Stack.Navigator>
@@ -256,10 +207,10 @@ function ChatsStack() {
 }
 
 // ─── Channels Tab ──────────────────────────────────────────────
-function ChannelsStack() {
+function ChannelsStack({ screenOptions }) {
   return (
     <ErrorBoundary name="Channels">
-      <Stack.Navigator screenOptions={stackScreenOptions}>
+      <Stack.Navigator screenOptions={screenOptions}>
         <Stack.Screen name="ChannelsList" component={ChannelsListScreen} options={{ title: 'Channels' }} />
         <Stack.Screen name="ChannelView" component={ChannelViewScreen} options={{ headerShown: false }} />
         <Stack.Screen name="CreateChannel" component={CreateChannelScreen} options={{ title: 'New Channel' }} />
@@ -270,10 +221,10 @@ function ChannelsStack() {
 }
 
 // ─── Groups Tab ────────────────────────────────────────────────
-function GroupsStack() {
+function GroupsStack({ screenOptions }) {
   return (
     <ErrorBoundary name="Groups">
-      <Stack.Navigator screenOptions={stackScreenOptions}>
+      <Stack.Navigator screenOptions={screenOptions}>
         <Stack.Screen name="GroupsList" component={GroupsListScreen} options={{ title: 'Groups' }} />
         <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
         <Stack.Screen name="GroupInfo" component={GroupInfoScreen} options={{ title: 'Group Info' }} />
@@ -285,10 +236,10 @@ function GroupsStack() {
 }
 
 // ─── Updates Tab ───────────────────────────────────────────────
-function UpdatesStack() {
+function UpdatesStack({ screenOptions }) {
   return (
     <ErrorBoundary name="Updates">
-      <Stack.Navigator screenOptions={stackScreenOptions}>
+      <Stack.Navigator screenOptions={screenOptions}>
         <Stack.Screen name="UpdatesList" component={UpdatesScreen} options={{ title: 'Updates' }} />
       </Stack.Navigator>
     </ErrorBoundary>
@@ -296,10 +247,10 @@ function UpdatesStack() {
 }
 
 // ─── Calls Tab ─────────────────────────────────────────────────
-function CallsStack() {
+function CallsStack({ screenOptions }) {
   return (
     <ErrorBoundary name="Calls">
-      <Stack.Navigator screenOptions={stackScreenOptions}>
+      <Stack.Navigator screenOptions={screenOptions}>
         <Stack.Screen name="CallsList" component={CallsScreen} options={{ title: 'Calls' }} />
       </Stack.Navigator>
     </ErrorBoundary>
@@ -307,10 +258,10 @@ function CallsStack() {
 }
 
 // ─── Settings Tab ──────────────────────────────────────────────
-function SettingsStack() {
+function SettingsStack({ screenOptions }) {
   return (
     <ErrorBoundary name="Settings">
-      <Stack.Navigator screenOptions={stackScreenOptions}>
+      <Stack.Navigator screenOptions={screenOptions}>
         <Stack.Screen name="SettingsHome" component={SettingsScreen} options={{ title: 'Settings' }} />
         <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
       </Stack.Navigator>
@@ -319,20 +270,15 @@ function SettingsStack() {
 }
 
 // ─── Main Bottom Tabs ──────────────────────────────────────────
-function MainTabs() {
+function MainTabs({ screenOptions }) {
   return (
-    <Tab.Navigator
-      tabBar={(props) => <AnimatedTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-      }}
-    >
-      <Tab.Screen name="ChatsTab" component={ChatsStack} />
-      <Tab.Screen name="ChannelsTab" component={ChannelsStack} />
-      <Tab.Screen name="GroupsTab" component={GroupsStack} />
-      <Tab.Screen name="UpdatesTab" component={UpdatesStack} />
-      <Tab.Screen name="CallsTab" component={CallsStack} />
-      <Tab.Screen name="SettingsTab" component={SettingsStack} />
+    <Tab.Navigator tabBar={(props) => <AnimatedTabBar {...props} />} screenOptions={{ headerShown: false }}>
+      <Tab.Screen name="ChatsTab" children={() => <ChatsStack screenOptions={screenOptions} />} />
+      <Tab.Screen name="ChannelsTab" children={() => <ChannelsStack screenOptions={screenOptions} />} />
+      <Tab.Screen name="GroupsTab" children={() => <GroupsStack screenOptions={screenOptions} />} />
+      <Tab.Screen name="UpdatesTab" children={() => <UpdatesStack screenOptions={screenOptions} />} />
+      <Tab.Screen name="CallsTab" children={() => <CallsStack screenOptions={screenOptions} />} />
+      <Tab.Screen name="SettingsTab" children={() => <SettingsStack screenOptions={screenOptions} />} />
     </Tab.Navigator>
   )
 }
@@ -340,6 +286,9 @@ function MainTabs() {
 // ─── Root Navigator ────────────────────────────────────────────
 export default function AppNavigator() {
   const { session, loading } = useAuthStore()
+  const colors = useColors()
+
+  const { stackScreenOptions } = ThemeStacks()
 
   if (loading) {
     return (
@@ -351,7 +300,7 @@ export default function AppNavigator() {
 
   return (
     <NavigationContainer ref={navigationRef}>
-      {session ? <MainTabs /> : <AuthStack />}
+      {session ? <MainTabs screenOptions={stackScreenOptions} /> : <AuthStack screenOptions={stackScreenOptions} />}
     </NavigationContainer>
   )
 }

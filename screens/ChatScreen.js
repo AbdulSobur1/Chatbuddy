@@ -1,22 +1,37 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView, Platform, Alert,
-  ActivityIndicator, Image, Modal, SafeAreaView,
+  ActivityIndicator, Image, Modal, SafeAreaView, Animated,
+  Share,
 } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
 import * as DocumentPicker from 'expo-document-picker'
 import { useAudioRecorder, requestRecordingPermissionsAsync, setAudioModeAsync, RecordingPresets } from 'expo-audio'
 import { Ionicons } from '@expo/vector-icons'
+import { Swipeable } from 'react-native-gesture-handler'
 import { useAuthStore, useMessagesStore, useBlockStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
-import { colors } from '../lib/theme'
+import { useColors } from '../lib/theme'
 import ChatHeader from '../components/ChatHeader'
 import { useToast } from '../components/Toast'
+import { playTypingSound, cleanupSounds } from '../lib/sounds'
 
 const EMOJI_LIST = ['👍', '❤️', '😂', '😮', '😢', '🙏']
+const getScheduleOptions = () => {
+  const today = new Date().getDay()
+  const daysUntilNextMonday = ((1 - today + 7) % 7) || 7
+  return [
+    { label: 'In 1 hour', icon: 'time-outline', hours: 1 },
+    { label: 'In 3 hours', icon: 'time-outline', hours: 3 },
+    { label: 'Tomorrow morning', icon: 'sunny-outline', hours: 16 },
+    { label: 'Tomorrow evening', icon: 'moon-outline', hours: 24 },
+    { label: 'Next Monday', icon: 'calendar-outline', hours: daysUntilNextMonday * 24 },
+  ]
+}
 
 export default function ChatScreen({ route, navigation }) {
+  const colors = useColors()
   const { channel } = route.params
   const user = useAuthStore((s) => s.user)
   const {
@@ -25,6 +40,7 @@ export default function ChatScreen({ route, navigation }) {
     fetchReadStatus, subscribeToReadStatus, unsubscribeFromReadStatus, markChannelAsRead,
     readStatusByChannel,
     fetchMuteStatus, toggleMute, mutedChannels,
+    scheduleMessage, processScheduledMessages,
   } = useMessagesStore()
 
   const [text, setText] = useState('')
@@ -40,6 +56,9 @@ export default function ChatScreen({ route, navigation }) {
   const [forwardChannels, setForwardChannels] = useState([])
   const [forwarding, setForwarding] = useState(false)
   const [lightboxImage, setLightboxImage] = useState(null)
+  const [exporting, setExporting] = useState(false)
+  const [showSchedule, setShowSchedule] = useState(false)
+  const [scheduling, setScheduling] = useState(false)
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY)
 
   const messages = messagesByChannel[channel.id] || []
@@ -98,6 +117,7 @@ export default function ChatScreen({ route, navigation }) {
     fetchReadStatus(channel.id)
     subscribeToReadStatus(channel.id)
     fetchMuteStatus(channel.id)
+    processScheduledMessages()
 
     // Mark channel as read on mount
     markChannelAsRead(channel.id)
@@ -115,6 +135,7 @@ export default function ChatScreen({ route, navigation }) {
           next.add(payload.userId)
           return next
         })
+        playTypingSound() // subtle notification
         // Auto-dismiss after 3s if no stop_typing received
         clearTimeout(typingTimersRef.current[payload.userId])
         typingTimersRef.current[payload.userId] = setTimeout(() => {
@@ -146,6 +167,7 @@ export default function ChatScreen({ route, navigation }) {
       if (typingChannelRef.current) {
         supabase.removeChannel(typingChannelRef.current)
       }
+      cleanupSounds()
     }
   }, [channel.id])
 
@@ -190,6 +212,36 @@ export default function ChatScreen({ route, navigation }) {
       toast.show('Failed to unblock user', 'error')
     }
   }
+
+  // Schedule a message for a future time
+  const handleScheduleMessage = async (hoursFromNow) => {
+    if (!text.trim() || scheduling) return
+    if (isBlockedState) {
+      toast.show('You cannot message a blocked user', 'warning')
+      return
+    }
+    setScheduling(true)
+    try {
+      const scheduledAt = new Date(Date.now() + hoursFromNow * 60 * 60 * 1000)
+      await scheduleMessage(channel.id, text.trim(), scheduledAt, null, replyTo?.id)
+      setText('')
+      setReplyTo(null)
+      setShowSchedule(false)
+      toast.show(`Scheduled for ${scheduledAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, 'success')
+    } catch (error) {
+      toast.show(error.message || 'Failed to schedule', 'error')
+    } finally {
+      setScheduling(false)
+    }
+  }
+
+  // Check for scheduled messages every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      processScheduledMessages()
+    }, 30000)
+    return () => clearInterval(interval)
+  }, [])
 
   const handleSend = async () => {
     if (!text.trim() || sending) return
@@ -413,6 +465,83 @@ export default function ChatScreen({ route, navigation }) {
     }
   }
 
+  const handleExportChat = useCallback(async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const allMessages = messagesByChannel[channel.id] || []
+      if (allMessages.length === 0) {
+        toast.show('No messages to export', 'info')
+        return
+      }
+
+      const lines = allMessages.map((msg) => {
+        const sender = msg.sender?.display_name || msg.sender_id?.slice(0, 8) || 'Unknown'
+        const date = new Date(msg.created_at).toLocaleString()
+        let content = msg.content || ''
+        if (msg.file_url) {
+          if (msg.file_url.match(/\.(jpg|jpeg|png|gif|webp)/i)) content = '[Image]'
+          else if (msg.file_url.match(/\.(m4a|mp3|wav|ogg|aac)/i)) content = '[Voice Note]'
+          else content = '[File]'
+        }
+        return `[${date}] ${sender}: ${content}`
+      })
+
+      const text = lines.join('\n')
+      await Share.share({
+        message: text,
+        title: `Chat Export — ${channel.name || 'Conversation'}`,
+      })
+    } catch (error) {
+      if (error.message !== 'User did not share') {
+        toast.show('Export failed', 'error')
+      }
+    } finally {
+      setExporting(false)
+    }
+  }, [channel.id, channel.name, messagesByChannel])
+
+  // Build a map of message ID -> message for quick lookup
+  const messageMap = useMemo(() => {
+    const map = {}
+    messages.forEach((m) => { map[m.id] = m })
+    return map
+  }, [messages])
+
+  // Build reply count per message
+  const replyCounts = useMemo(() => {
+    const counts = {}
+    messages.forEach((m) => {
+      if (m.reply_to_id) {
+        counts[m.reply_to_id] = (counts[m.reply_to_id] || 0) + 1
+      }
+    })
+    return counts
+  }, [messages])
+
+  // Build map of reply_to_id -> array of reply messages
+  const messagesByReplyToId = useMemo(() => {
+    const map = {}
+    messages.forEach((m) => {
+      if (m.reply_to_id) {
+        if (!map[m.reply_to_id]) map[m.reply_to_id] = []
+        map[m.reply_to_id].push(m)
+      }
+    })
+    return map
+  }, [messages])
+
+  const [expandedThread, setExpandedThread] = useState(null)
+
+  const scrollToMessage = (messageId) => {
+    const index = messages.findIndex((m) => m.id === messageId)
+    if (index >= 0) {
+      flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 })
+    }
+  }
+
+  const styles = useMemo(() => makeStyles(colors), [colors])
+
   const formatTime = (dateStr) => {
     const date = new Date(dateStr)
     const now = new Date()
@@ -464,6 +593,23 @@ export default function ChatScreen({ route, navigation }) {
       )
     }
 
+    // Scheduled message indicator
+    if (item.scheduled_at) {
+      const schedTime = new Date(item.scheduled_at)
+      const isBefore = schedTime > new Date()
+      return (
+        <View style={styles.scheduledMsg}>
+          <Ionicons name="time-outline" size={14} color={colors.warning} />
+          <Text style={[styles.messageText, isMine && styles.myMessageText]}>
+            {item.content}
+          </Text>
+          <Text style={styles.scheduledBadge}>
+            {isBefore ? `Scheduled ${formatTime(item.scheduled_at)}` : 'Sending...'}
+          </Text>
+        </View>
+      )
+    }
+
     // Plain text message
     if (item.content) {
       return (
@@ -474,6 +620,23 @@ export default function ChatScreen({ route, navigation }) {
     }
 
     return null
+  }
+
+  // Render swipeable reply action
+  const renderRightActions = (item) => {
+    return (
+      <Animated.View style={styles.swipeAction}>
+        <TouchableOpacity
+          style={styles.swipeActionButton}
+          onPress={() => {
+            setReplyTo(item)
+          }}
+        >
+          <Ionicons name="arrow-undo" size={22} color="#fff" />
+          <Text style={styles.swipeActionText}>Reply</Text>
+        </TouchableOpacity>
+      </Animated.View>
+    )
   }
 
   const renderMessage = ({ item }) => {
@@ -503,20 +666,40 @@ export default function ChatScreen({ route, navigation }) {
       }
     }
 
-    return (
+      // Find the original replied-to message
+    const repliedToMsg = item.reply_to_id ? messageMap[item.reply_to_id] : null
+    const replyCount = replyCounts[item.id] || 0
+    const isThreadExpanded = expandedThread === item.id
+
+    const messageContent = (
       <TouchableOpacity
         onLongPress={() => handleLongPress(item)}
         delayLongPress={400}
         activeOpacity={0.7}
+        onPress={() => {
+          // If message has replies and not currently expanded, expand thread
+          if (replyCount > 0 && !isThreadExpanded) {
+            setExpandedThread(item.id)
+          } else if (isThreadExpanded) {
+            setExpandedThread(null)
+          }
+        }}
       >
         <View style={[styles.messageRow, isMine && styles.myMessageRow]}>
           <View style={[styles.messageBubble, isMine ? styles.myBubble : styles.theirBubble]}>
-            {item.reply_to_id && (
-              <View style={styles.replyPreview}>
-                <Text style={styles.replyPreviewText}>
-                  Replying to a message
+            {item.reply_to_id && repliedToMsg && (
+              <TouchableOpacity
+                style={styles.replyPreview}
+                onPress={() => scrollToMessage(item.reply_to_id)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.replyPreviewSender} numberOfLines={1}>
+                  {repliedToMsg.sender?.display_name || 'Someone'}
                 </Text>
-              </View>
+                <Text style={styles.replyPreviewText} numberOfLines={1}>
+                  {repliedToMsg.content || (repliedToMsg.file_url ? '📎 File' : '')}
+                </Text>
+              </TouchableOpacity>
             )}
             {renderMessageContent(item, isMine)}
             {Object.keys(reactionSummary).length > 0 && (
@@ -556,9 +739,60 @@ export default function ChatScreen({ route, navigation }) {
                 />
               )}
             </View>
+            {replyCount > 0 && (
+              <TouchableOpacity
+                style={styles.threadBadge}
+                onPress={() => {
+                  if (isThreadExpanded) setExpandedThread(null)
+                  else setExpandedThread(item.id)
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="chevron-down" size={12} color={colors.primary} />
+                <Text style={styles.threadBadgeText}>
+                  {replyCount} {replyCount === 1 ? 'reply' : 'replies'}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </TouchableOpacity>
+    )
+
+    // Replies to this message (for inline thread view)
+    const threadReplies = isThreadExpanded ? (messagesByReplyToId[item.id] || []) : []
+
+    const renderThreadReply = (reply, index) => {
+      const isReplyMine = reply.sender_id === user.id
+      return (
+        <View key={reply.id} style={[styles.threadReplyRow, isReplyMine && styles.threadReplyRowMine]}>
+          <View style={styles.threadReplyLine} />
+          <View style={[styles.threadReplyBubble]}>
+            <Text style={styles.threadReplySender} numberOfLines={1}>
+              {reply.sender?.display_name || 'Someone'}
+            </Text>
+            <Text style={styles.threadReplyContent}>{reply.content}</Text>
+            <Text style={styles.threadReplyTime}>{formatTime(reply.created_at)}</Text>
+          </View>
+        </View>
+      )
+    }
+
+    return (
+      <View>
+        <Swipeable
+          renderRightActions={() => renderRightActions(item)}
+          overshootRight={false}
+          rightThreshold={40}
+        >
+          {messageContent}
+        </Swipeable>
+        {isThreadExpanded && threadReplies.length > 0 && (
+          <View style={styles.threadContainer}>
+            {threadReplies.map((reply, idx) => renderThreadReply(reply, idx))}
+          </View>
+        )}
+      </View>
     )
   }
 
@@ -648,6 +882,9 @@ export default function ChatScreen({ route, navigation }) {
           </TouchableOpacity>
           <TouchableOpacity style={styles.attachButton} onPress={handleDocumentPick}>
             <Ionicons name="document-outline" size={24} color={colors.textTertiary} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.attachButton} onPress={() => setShowSchedule(true)}>
+            <Ionicons name="time-outline" size={24} color={colors.textTertiary} />
           </TouchableOpacity>
           <TextInput
             style={styles.textInput}
@@ -748,6 +985,20 @@ export default function ChatScreen({ route, navigation }) {
                 >
                   <Ionicons name="arrow-undo" size={22} color="#fff" />
                   <Text style={styles.actionText}>Reply</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionItem}
+                  onPress={() => {
+                    setShowActions(false)
+                    handleExportChat()
+                  }}
+                >
+                  {exporting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name="download-outline" size={22} color="#fff" />
+                  )}
+                  <Text style={styles.actionText}>{exporting ? 'Exporting...' : 'Export Chat'}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.actionItem}
@@ -872,6 +1123,37 @@ export default function ChatScreen({ route, navigation }) {
         </View>
       </Modal>
 
+      {/* Schedule Message Modal */}
+      <Modal visible={showSchedule} transparent animationType="slide">
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSchedule(false)}
+        >
+          <View style={[styles.actionSheet, { paddingBottom: 40 }]}>
+            <Text style={styles.actionTitle}>Schedule Message</Text>
+            {getScheduleOptions().map((opt) => (
+              <TouchableOpacity
+                key={opt.label}
+                style={styles.actionItem}
+                onPress={() => handleScheduleMessage(opt.hours)}
+                disabled={scheduling}
+              >
+                <Ionicons name={opt.icon} size={22} color={colors.primary} />
+                <Text style={styles.actionText}>{opt.label}</Text>
+                {scheduling && <ActivityIndicator size="small" color={colors.primary} />}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={styles.cancelAction}
+              onPress={() => setShowSchedule(false)}
+            >
+              <Text style={styles.cancelActionText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Image Lightbox */}
       <Modal visible={!!lightboxImage} transparent animationType="fade" onRequestClose={() => setLightboxImage(null)}>
         <TouchableOpacity
@@ -895,7 +1177,7 @@ export default function ChatScreen({ route, navigation }) {
   )
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.bg,
@@ -961,9 +1243,75 @@ const styles = StyleSheet.create({
     borderLeftWidth: 3,
     borderLeftColor: colors.primary,
   },
+  replyPreviewSender: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
   replyPreviewText: {
     color: '#aaa',
     fontSize: 12,
+  },
+  threadBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    gap: 4,
+  },
+  threadBadgeText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  threadContainer: {
+    marginTop: 2,
+    marginBottom: 4,
+  },
+  threadReplyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingLeft: 16,
+    marginVertical: 2,
+  },
+  threadReplyRowMine: {
+    justifyContent: 'flex-end',
+    paddingRight: 16,
+    paddingLeft: 0,
+  },
+  threadReplyLine: {
+    width: 2,
+    backgroundColor: `${colors.primary}30`,
+    marginRight: 10,
+    alignSelf: 'stretch',
+    minHeight: 30,
+    borderRadius: 1,
+  },
+  threadReplyBubble: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    maxWidth: '75%',
+    borderWidth: 0.5,
+    borderColor: colors.border,
+  },
+  threadReplySender: {
+    color: colors.primary,
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  threadReplyContent: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  threadReplyTime: {
+    color: colors.textDisabled,
+    fontSize: 10,
+    marginTop: 2,
+    alignSelf: 'flex-end',
   },
   reactionBar: {
     flexDirection: 'row',
@@ -1003,6 +1351,23 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontSize: 14,
     flex: 1,
+  },
+  // ── Scheduled Messages ────────────────────────────────
+  scheduledMsg: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  scheduledBadge: {
+    color: colors.warning,
+    fontSize: 10,
+    fontWeight: '500',
+    backgroundColor: `${colors.warning}15`,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    overflow: 'hidden',
   },
   voiceNote: {
     flexDirection: 'row',
@@ -1331,6 +1696,28 @@ const styles = StyleSheet.create({
   forwardEmptyText: {
     color: colors.textMuted,
     fontSize: 14,
+  },
+
+  // ── Swipe to Reply ───────────────────────────────
+  swipeAction: {
+    justifyContent: 'center',
+    alignItems: 'flex-start',
+  },
+  swipeActionButton: {
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 72,
+    height: '100%',
+    borderTopLeftRadius: 18,
+    borderBottomLeftRadius: 18,
+    marginVertical: 3,
+  },
+  swipeActionText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
   },
 
   // ── Image Lightbox ────────────────────────────────

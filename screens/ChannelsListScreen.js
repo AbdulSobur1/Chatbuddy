@@ -1,14 +1,15 @@
-import React, { useState, useCallback } from 'react'
+import React, { useState, useCallback, useMemo } from 'react'
 import { View, Text, FlatList, TouchableOpacity, StyleSheet, TextInput, ActivityIndicator, Modal } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../lib/supabase'
 import { useAuthStore } from '../lib/store'
-import { colors, radius } from '../lib/theme'
+import { useColors, radius } from '../lib/theme'
 import { ListItemSkeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 
 export default function ChannelsListScreen({ navigation }) {
+  const colors = useColors()
   const user = useAuthStore((s) => s.user)
   const [channels, setChannels] = useState([])
   const [loading, setLoading] = useState(true)
@@ -85,6 +86,8 @@ export default function ChannelsListScreen({ navigation }) {
     )
   }
 
+  const styles = useMemo(() => makeStyles(colors), [colors])
+
   return (
     <View style={styles.container}>
       <View style={styles.actionRow}>
@@ -133,7 +136,7 @@ export default function ChannelsListScreen({ navigation }) {
   )
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   skel: { paddingTop: 8 },

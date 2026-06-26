@@ -1,20 +1,30 @@
-import React, { useCallback, useState, useEffect, useRef } from 'react'
+import React, { useCallback, useState, useEffect, useRef, useMemo } from 'react'
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   TextInput, Modal, ActivityIndicator,
 } from 'react-native'
 import { useFocusEffect } from '@react-navigation/native'
 import { Ionicons } from '@expo/vector-icons'
-import { useAuthStore } from '../lib/store'
+import { useAuthStore, useMessagesStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
-import { colors, radius, shadows } from '../lib/theme'
+import { useColors, radius, shadows } from '../lib/theme'
 import Avatar from '../components/Avatar'
 import { ChatListItemSkeleton } from '../components/Skeleton'
 import { useToast } from '../components/Toast'
 
 const RECENT_THRESHOLD = 2 * 60 * 1000
 
+const getLastSeenText = (lastSeen) => {
+  if (!lastSeen) return null
+  const diff = Date.now() - new Date(lastSeen).getTime()
+  if (diff < 60000) return 'Just now'
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
+  return `${Math.floor(diff / 86400000)}d ago`
+}
+
 export default function ChatsListScreen({ navigation }) {
+  const colors = useColors()
   const user = useAuthStore((s) => s.user)
   const [channels, setChannels] = useState([])
   const [loading, setLoading] = useState(true)
@@ -23,13 +33,19 @@ export default function ChatsListScreen({ navigation }) {
   const [usersLoading, setUsersLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [creating, setCreating] = useState(false)
-  const [onlineUsers, setOnlineUsers] = useState({})
+  const [onlineStatus, setOnlineStatus] = useState({}) // { userId: { isOnline: bool, lastSeen: timestamp } }
   const [lastMessages, setLastMessages] = useState({})
   const [otherUsers, setOtherUsers] = useState({})
   const [showSearch, setShowSearch] = useState(false)
   const [searchMsgQuery, setSearchMsgQuery] = useState('')
   const [searchResults, setSearchResults] = useState([])
   const [searchingMsgs, setSearchingMsgs] = useState(false)
+  const [chatFilter, setChatFilter] = useState('')
+  const [archivedChannels, setArchivedChannels] = useState([])
+  const [selectedChannel, setSelectedChannel] = useState(null)
+  const [showChannelActions, setShowChannelActions] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
+  const { archiveChannel, unarchiveChannel, pinChannel, unpinChannel, pinnedChannels, fetchPinnedChannels } = useMessagesStore()
   const toast = useToast()
 
   useFocusEffect(
@@ -37,6 +53,11 @@ export default function ChatsListScreen({ navigation }) {
       fetchDMs()
     }, [user])
   )
+
+  // Fetch pinned channels on mount
+  useEffect(() => {
+    if (user) fetchPinnedChannels()
+  }, [user])
 
   useEffect(() => {
     if (!user) return
@@ -46,9 +67,9 @@ export default function ChatsListScreen({ navigation }) {
         const statusMap = {}
         data.forEach((u) => {
           const isOnline = u.last_seen && Date.now() - new Date(u.last_seen).getTime() < RECENT_THRESHOLD
-          statusMap[u.id] = isOnline
+          statusMap[u.id] = { isOnline, lastSeen: u.last_seen }
         })
-        setOnlineUsers(statusMap)
+        setOnlineStatus(statusMap)
       }
     }
     fetchStatuses()
@@ -61,7 +82,7 @@ export default function ChatsListScreen({ navigation }) {
     setLoading(true)
     const { data, error } = await supabase
       .from('channel_members')
-      .select('channel_id, channels!inner(*)')
+      .select('channel_id, channels!inner(*), archived_at')
       .eq('user_id', user.id)
 
     if (error) {
@@ -70,14 +91,25 @@ export default function ChatsListScreen({ navigation }) {
       return
     }
 
-    const dmChannels = data
-      .map((cm) => cm.channels)
-      .filter((c) => c && c.channel_type === 'dm')
-      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    const active = []
+    const archived = []
+    data.forEach((cm) => {
+      const ch = cm.channels
+      if (!ch || ch.channel_type !== 'dm') return
+      if (cm.archived_at) {
+        archived.push(ch)
+      } else {
+        active.push(ch)
+      }
+    })
 
-    setChannels(dmChannels)
+    active.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+    archived.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+
+    setChannels(active)
+    setArchivedChannels(archived)
     setLoading(false)
-    fetchOtherUsers(dmChannels)
+    fetchOtherUsers([...active, ...archived])
   }
 
   const fetchOtherUsers = async (dmChannels) => {
@@ -288,17 +320,44 @@ export default function ChatsListScreen({ navigation }) {
     }
   }
 
+  const handleArchive = async (channel) => {
+    try {
+      await archiveChannel(channel.id)
+      setChannels((prev) => prev.filter((c) => c.id !== channel.id))
+      setArchivedChannels((prev) => [...prev, channel])
+      toast.show('Chat archived', 'info')
+    } catch (error) {
+      toast.show('Failed to archive chat', 'error')
+    }
+  }
+
+  const handleUnarchive = async (channel) => {
+    try {
+      await unarchiveChannel(channel.id)
+      setArchivedChannels((prev) => prev.filter((c) => c.id !== channel.id))
+      setChannels((prev) => [channel, ...prev])
+      toast.show('Chat unarchived', 'success')
+    } catch (error) {
+      toast.show('Failed to unarchive chat', 'error')
+    }
+  }
+
   const renderChannel = ({ item }) => {
     const preview = getLastMessagePreview(item.id)
     const otherUser = otherUsers[item.id]
     const name = otherUser?.display_name || item.name || 'Direct Chat'
     const userId = otherUser?.id
-    const isOnline = userId ? onlineUsers[userId] : undefined
+    const status = userId ? onlineStatus[userId] : undefined
+    const isOnline = status?.isOnline
+    const isPinned = pinnedChannels.has(item.id)
+    const lastSeenText = userId && !isOnline && status?.lastSeen ? `Last seen ${getLastSeenText(status.lastSeen)}` : null
 
     return (
       <TouchableOpacity
         style={styles.channelItem}
         onPress={() => navigation.navigate('Chat', { channel: item })}
+        onLongPress={() => { setSelectedChannel(item); setShowChannelActions(true) }}
+        delayLongPress={500}
         activeOpacity={0.7}
       >
         <Avatar
@@ -308,8 +367,13 @@ export default function ChatsListScreen({ navigation }) {
           showOnline
         />
         <View style={styles.channelInfo}>
-          <Text style={styles.channelName} numberOfLines={1}>{name}</Text>
-          <Text style={styles.lastMessage} numberOfLines={1}>{preview.text}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {isPinned && <Ionicons name="pin" size={12} color={colors.primary} />}
+            <Text style={styles.channelName} numberOfLines={1}>{name}</Text>
+          </View>
+          <Text style={styles.lastMessage} numberOfLines={1}>
+            {lastSeenText || preview.text}
+          </Text>
         </View>
         <View style={styles.metaContainer}>
           {preview.time && <Text style={styles.timeText}>{preview.time}</Text>}
@@ -334,8 +398,34 @@ export default function ChatsListScreen({ navigation }) {
     )
   }
 
+  const renderArchivedChannel = ({ item }) => {
+    const preview = getLastMessagePreview(item.id)
+    const otherUser = otherUsers[item.id]
+    const name = otherUser?.display_name || item.name || 'Direct Chat'
+
+    return (
+      <TouchableOpacity
+        style={styles.archivedItem}
+        onPress={() => navigation.navigate('Chat', { channel: item })}
+        onLongPress={() => handleUnarchive(item)}
+        delayLongPress={500}
+        activeOpacity={0.7}
+      >
+        <View style={styles.archivedIcon}>
+          <Ionicons name="archive-outline" size={18} color={colors.textMuted} />
+        </View>
+        <View style={styles.channelInfo}>
+          <Text style={[styles.channelName, { color: colors.textMuted }]} numberOfLines={1}>{name}</Text>
+          <Text style={styles.lastMessage} numberOfLines={1}>{preview.text}</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={16} color={colors.textDisabled} />
+      </TouchableOpacity>
+    )
+  }
+
   const renderUser = ({ item }) => {
-    const isOnline = item.last_seen && Date.now() - new Date(item.last_seen).getTime() < RECENT_THRESHOLD
+    const status = onlineStatus[item.id]
+    const isOnline = status?.isOnline || (item.last_seen && Date.now() - new Date(item.last_seen).getTime() < RECENT_THRESHOLD)
     return (
       <TouchableOpacity
         style={styles.userItem}
@@ -357,8 +447,50 @@ export default function ChatsListScreen({ navigation }) {
     )
   }
 
+  // Filter channels by name
+  const filteredChannels = useMemo(() => {
+    if (!chatFilter.trim()) return channels
+    const query = chatFilter.toLowerCase().trim()
+    return channels.filter((ch) => {
+      const name = otherUsers[ch.id]?.display_name || ch.name || ''
+      return name.toLowerCase().includes(query)
+    })
+  }, [channels, otherUsers, chatFilter])
+
+  // Separate pinned and unpinned channels
+  const { pinned, unpinned } = useMemo(() => {
+    const p = []
+    const u = []
+    filteredChannels.forEach((ch) => {
+      if (pinnedChannels.has(ch.id)) p.push(ch)
+      else u.push(ch)
+    })
+    return { pinned: p, unpinned: u }
+  }, [filteredChannels, pinnedChannels])
+
+  const styles = useMemo(() => makeStyles(colors), [colors])
+
   return (
     <View style={styles.container}>
+      {/* Chat filter */}
+      <View style={styles.filterBar}>
+        <Ionicons name="search" size={16} color={colors.textMuted} />
+        <TextInput
+          style={styles.filterInput}
+          placeholder="Filter chats..."
+          placeholderTextColor={colors.textMuted}
+          value={chatFilter}
+          onChangeText={setChatFilter}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {chatFilter.length > 0 && (
+          <TouchableOpacity onPress={() => setChatFilter('')}>
+            <Ionicons name="close-circle" size={16} color={colors.textMuted} />
+          </TouchableOpacity>
+        )}
+      </View>
+
       {/* Search toggle */}
       <TouchableOpacity
         style={styles.searchToggle}
@@ -377,7 +509,7 @@ export default function ChatsListScreen({ navigation }) {
         </View>
       ) : (
         <FlatList
-          data={channels}
+          data={[...pinned, ...unpinned]}
           keyExtractor={(item) => item.id}
           renderItem={renderChannel}
           contentContainerStyle={channels.length === 0 ? styles.emptyContainer : styles.list}
@@ -392,6 +524,35 @@ export default function ChatsListScreen({ navigation }) {
           }
           refreshing={loading}
           onRefresh={fetchDMs}
+          ListFooterComponent={
+            archivedChannels.length > 0 ? (
+              <View>
+                <TouchableOpacity
+                  style={styles.archivedToggle}
+                  onPress={() => setShowArchived(!showArchived)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="archive-outline" size={18} color={colors.textMuted} />
+                  <Text style={styles.archivedToggleText}>
+                    Archived ({archivedChannels.length})
+                  </Text>
+                  <Ionicons
+                    name={showArchived ? 'chevron-down' : 'chevron-forward'}
+                    size={16}
+                    color={colors.textDisabled}
+                  />
+                </TouchableOpacity>
+                {showArchived && (
+                  <FlatList
+                    data={archivedChannels}
+                    keyExtractor={(item) => `archived-${item.id}`}
+                    renderItem={renderArchivedChannel}
+                    scrollEnabled={false}
+                  />
+                )}
+              </View>
+            ) : null
+          }
         />
       )}
 
@@ -446,6 +607,66 @@ export default function ChatsListScreen({ navigation }) {
       <TouchableOpacity style={styles.fab} onPress={() => { setSearchQuery(''); setUsers([]); setShowNewChat(true) }} activeOpacity={0.85}>
         <Ionicons name="add" size={28} color="#fff" />
       </TouchableOpacity>
+
+      {/* Channel Actions Modal */}
+      <Modal visible={showChannelActions} transparent animationType="fade">
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => { setShowChannelActions(false); setSelectedChannel(null) }}
+        >
+          <View style={styles.actionSheet}>
+            <Text style={styles.actionTitle}>Chat Options</Text>
+            <TouchableOpacity
+              style={styles.actionItem}
+              onPress={async () => {
+                const ch = selectedChannel
+                if (!ch) return
+                const isPinned = pinnedChannels.has(ch.id)
+                try {
+                  if (isPinned) {
+                    await unpinChannel(ch.id)
+                    toast.show('Chat unpinned', 'info')
+                  } else {
+                    await pinChannel(ch.id)
+                    toast.show('Chat pinned!', 'success')
+                  }
+                } catch { toast.show('Failed', 'error') }
+                setShowChannelActions(false)
+                setSelectedChannel(null)
+              }}
+            >
+              <Ionicons
+                name={pinnedChannels.has(selectedChannel?.id) ? 'pin-off' : 'pin'}
+                size={22}
+                color="#fff"
+              />
+              <Text style={styles.actionText}>
+                {pinnedChannels.has(selectedChannel?.id) ? 'Unpin Chat' : 'Pin Chat'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionItem}
+              onPress={async () => {
+                const ch = selectedChannel
+                if (!ch) return
+                await handleArchive(ch)
+                setShowChannelActions(false)
+                setSelectedChannel(null)
+              }}
+            >
+              <Ionicons name="archive-outline" size={22} color="#fff" />
+              <Text style={styles.actionText}>Archive Chat</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.cancelAction}
+              onPress={() => { setShowChannelActions(false); setSelectedChannel(null) }}
+            >
+              <Text style={styles.cancelActionText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* New DM Modal */}
       <Modal visible={showNewChat} transparent animationType="slide" onRequestClose={() => setShowNewChat(false)}>
@@ -506,7 +727,7 @@ export default function ChatsListScreen({ navigation }) {
   )
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors) => StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   list: { paddingVertical: 8 },
   emptyContainer: { flex: 1 },
@@ -527,6 +748,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center',
     borderWidth: 1, borderColor: colors.border,
   },
+
+  // ── Filter ─────────────────────────────────────────────
+  filterBar: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.surface, marginHorizontal: 16, marginTop: 8,
+    borderRadius: radius.md, paddingHorizontal: 10, height: 36, gap: 6,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  filterInput: { flex: 1, color: colors.textPrimary, fontSize: 14, padding: 0 },
 
   // ── Search ─────────────────────────────────────────────
   searchToggle: {
@@ -616,4 +846,62 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   noUsers: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40 },
   noUsersText: { color: colors.textMuted, fontSize: 15, marginTop: 12, textAlign: 'center' },
+
+  // ── Channel Actions Sheet ───────────────────────────────
+  actionSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 40,
+  },
+  actionTitle: {
+    color: colors.textPrimary,
+    fontSize: 17,
+    fontWeight: '600',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  actionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 14,
+    borderBottomWidth: 0.5,
+    borderBottomColor: colors.border,
+  },
+  actionText: {
+    color: colors.textPrimary,
+    fontSize: 16,
+  },
+  cancelAction: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  cancelActionText: {
+    color: colors.textTertiary,
+    fontSize: 16,
+  },
+
+  // ── Archived ────────────────────────────────────────────
+  archivedToggle: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 16, paddingVertical: 12,
+    borderTopWidth: 0.5, borderTopColor: colors.border,
+    gap: 10, marginTop: 8,
+  },
+  archivedToggleText: {
+    color: colors.textMuted, fontSize: 15, fontWeight: '500', flex: 1,
+  },
+  archivedItem: {
+    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16,
+    paddingVertical: 10, paddingLeft: 44, gap: 10,
+    opacity: 0.7,
+  },
+  archivedIcon: {
+    width: 24, height: 24, borderRadius: 12,
+    backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center',
+  },
 })
