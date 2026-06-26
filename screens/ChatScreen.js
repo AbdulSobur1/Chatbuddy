@@ -24,6 +24,7 @@ export default function ChatScreen({ route, navigation }) {
     sendMessage, editMessage, deleteMessage, addReaction, removeReaction, uploadFile,
     fetchReadStatus, subscribeToReadStatus, unsubscribeFromReadStatus, markChannelAsRead,
     readStatusByChannel,
+    fetchMuteStatus, toggleMute, mutedChannels,
   } = useMessagesStore()
 
   const [text, setText] = useState('')
@@ -79,6 +80,7 @@ export default function ChatScreen({ route, navigation }) {
     subscribeToChannel(channel.id)
     fetchReadStatus(channel.id)
     subscribeToReadStatus(channel.id)
+    fetchMuteStatus(channel.id)
 
     // Mark channel as read on mount
     markChannelAsRead(channel.id)
@@ -461,6 +463,8 @@ export default function ChatScreen({ route, navigation }) {
         onAudioCall={() => startCall('audio')}
         onVideoCall={() => startCall('video')}
         onGroupInfo={() => navigation.navigate('GroupInfo', { channel })}
+        isMuted={mutedChannels[channel.id]}
+        onMuteToggle={() => toggleMute(channel.id)}
       />
 
       {/* Messages */}

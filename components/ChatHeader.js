@@ -61,6 +61,8 @@ export default function ChatHeader({
   onAudioCall,
   onVideoCall,
   onGroupInfo,
+  onMuteToggle,
+  isMuted,
   online,
 }) {
   const slideAnim = useRef(new Animated.Value(-80)).current
@@ -101,6 +103,10 @@ export default function ChatHeader({
   const isDM = channel.channel_type === 'dm'
   const isGroup = channel.channel_type === 'group'
   const displayName = channel.name || 'Chat'
+
+  // Safe defaults for optional props
+  const safeIsMuted = isMuted ?? false
+  const handleMuteToggle = onMuteToggle || (() => {})
 
   return (
     <Animated.View
@@ -165,6 +171,12 @@ export default function ChatHeader({
             {isGroup && (
               <CallButton icon="people-outline" color={colors.textSecondary} onPress={onGroupInfo} />
             )}
+            {/* Mute toggle */}
+            <CallButton
+              icon={safeIsMuted ? 'notifications-off' : 'notifications-outline'}
+              color={safeIsMuted ? colors.danger : colors.textMuted}
+              onPress={handleMuteToggle}
+            />
           </View>
         </View>
 
