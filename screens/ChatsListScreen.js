@@ -1,4 +1,4 @@
-import React, { useCallback, useState, useEffect } from 'react'
+import React, { useCallback, useState, useEffect, useRef } from 'react'
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   TextInput, Modal, ActivityIndicator,
@@ -26,6 +26,10 @@ export default function ChatsListScreen({ navigation }) {
   const [onlineUsers, setOnlineUsers] = useState({})
   const [lastMessages, setLastMessages] = useState({})
   const [otherUsers, setOtherUsers] = useState({})
+  const [showSearch, setShowSearch] = useState(false)
+  const [searchMsgQuery, setSearchMsgQuery] = useState('')
+  const [searchResults, setSearchResults] = useState([])
+  const [searchingMsgs, setSearchingMsgs] = useState(false)
   const toast = useToast()
 
   useFocusEffect(
@@ -204,6 +208,74 @@ export default function ChatsListScreen({ navigation }) {
     }
   }
 
+  // Fetch user's channel IDs once and reuse for searches
+  const userChannelIdsRef = useRef([])
+
+  useEffect(() => {
+    if (!user) return
+    supabase
+      .from('channel_members')
+      .select('channel_id')
+      .eq('user_id', user.id)
+      .then(({ data }) => {
+        userChannelIdsRef.current = (data || []).map((m) => m.channel_id)
+      })
+  }, [user])
+
+  const searchMessages = async (query) => {
+    if (!user || userChannelIdsRef.current.length === 0) return
+    setSearchingMsgs(true)
+    const { data } = await supabase
+      .from('messages')
+      .select(`
+        id, content, created_at, channel_id, sender_id,
+        sender:sender_id(display_name),
+        channel:channel_id!inner(name, channel_type)
+      `)
+      .in('channel_id', userChannelIdsRef.current)
+      .ilike('content', `%${query}%`)
+      .order('created_at', { ascending: false })
+      .limit(30)
+    setSearchResults(data || [])
+    setSearchingMsgs(false)
+  }
+
+  const renderSearchResult = ({ item }) => {
+    const channelName = item.channel?.name || 'Chat'
+    const senderName = item.sender?.display_name || 'Someone'
+    const channelType = item.channel?.channel_type || 'dm'
+    const typeIcon = channelType === 'dm' ? 'person' : channelType === 'group' ? 'people' : 'megaphone'
+    const preview = item.content || '📎 File'
+    const truncated = preview.length > 80 ? preview.substring(0, 80) + '...' : preview
+
+    return (
+      <TouchableOpacity
+        style={styles.searchResultItem}
+        onPress={() => {
+          setShowSearch(false)
+          setSearchMsgQuery('')
+          setSearchResults([])
+          navigation.navigate('Chat', { channel: { id: item.channel_id, name: channelName, channel_type: channelType } })
+        }}
+        activeOpacity={0.7}
+      >
+        <View style={styles.searchResultIcon}>
+          <Ionicons name={typeIcon} size={20} color={colors.primary} />
+        </View>
+        <View style={styles.searchResultInfo}>
+          <View style={styles.searchResultHeader}>
+            <Text style={styles.searchResultChannel} numberOfLines={1}>{channelName}</Text>
+            <Text style={styles.searchResultTime}>
+              {new Date(item.created_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+            </Text>
+          </View>
+          <Text style={styles.searchResultSender} numberOfLines={1}>{senderName}</Text>
+          <Text style={styles.searchResultPreview} numberOfLines={2}>{truncated}</Text>
+        </View>
+      </TouchableOpacity>
+    )
+  }
+
   const getLastMessagePreview = (channelId) => {
     const msg = lastMessages[channelId]
     if (!msg) return { text: 'No messages yet', time: null }
@@ -287,6 +359,16 @@ export default function ChatsListScreen({ navigation }) {
 
   return (
     <View style={styles.container}>
+      {/* Search toggle */}
+      <TouchableOpacity
+        style={styles.searchToggle}
+        onPress={() => setShowSearch(true)}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="search" size={18} color={colors.textMuted} />
+        <Text style={styles.searchToggleText}>Search messages...</Text>
+      </TouchableOpacity>
+
       {loading ? (
         <View style={styles.skeletonContainer}>
           {Array.from({ length: 8 }).map((_, i) => (
@@ -311,6 +393,53 @@ export default function ChatsListScreen({ navigation }) {
           refreshing={loading}
           onRefresh={fetchDMs}
         />
+      )}
+
+      {/* Search Bar (when active) */}
+      {showSearch && (
+        <View style={styles.searchBar}>
+          <View style={styles.searchInputRow}>
+            <Ionicons name="search" size={18} color={colors.textMuted} />
+            <TextInput
+              style={styles.searchField}
+              placeholder="Search all messages..."
+              placeholderTextColor={colors.textMuted}
+              value={searchMsgQuery}
+              onChangeText={(v) => {
+                setSearchMsgQuery(v)
+                if (v.length < 2) { setSearchResults([]); return }
+                searchMessages(v)
+              }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoFocus
+            />
+            {searchMsgQuery.length > 0 && (
+              <TouchableOpacity onPress={() => { setSearchMsgQuery(''); setSearchResults([]) }}>
+                <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={() => { setShowSearch(false); setSearchMsgQuery(''); setSearchResults([]) }}>
+              <Text style={{ color: colors.primary, fontSize: 15, fontWeight: '500' }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+          {searchingMsgs && <ActivityIndicator color={colors.primary} style={{ marginVertical: 8 }} />}
+          {searchResults.length > 0 && (
+            <FlatList
+              data={searchResults}
+              keyExtractor={(item) => item.id}
+              renderItem={renderSearchResult}
+              style={styles.searchResultsList}
+              keyboardShouldPersistTaps="handled"
+            />
+          )}
+          {searchMsgQuery.length >= 2 && !searchingMsgs && searchResults.length === 0 && (
+            <View style={styles.noResults}>
+              <Ionicons name="search-outline" size={32} color={colors.textDisabled} />
+              <Text style={styles.noResultsText}>No messages found for "{searchMsgQuery}"</Text>
+            </View>
+          )}
+        </View>
       )}
 
       {/* FAB */}
@@ -398,6 +527,48 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface, justifyContent: 'center', alignItems: 'center',
     borderWidth: 1, borderColor: colors.border,
   },
+
+  // ── Search ─────────────────────────────────────────────
+  searchToggle: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: colors.surface, marginHorizontal: 16, marginTop: 8, marginBottom: 4,
+    borderRadius: radius.md, paddingHorizontal: 12, height: 40, gap: 8,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  searchToggleText: { color: colors.textMuted, fontSize: 15, flex: 1 },
+  searchBar: {
+    position: 'absolute', top: 0, left: 0, right: 0, zIndex: 100,
+    backgroundColor: colors.bg, paddingTop: 8, paddingHorizontal: 16,
+    paddingBottom: 8, elevation: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15, shadowRadius: 12, maxHeight: 300,
+  },
+  searchInputRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: colors.surface, borderRadius: radius.md,
+    paddingHorizontal: 12, height: 40, borderWidth: 1, borderColor: colors.border,
+  },
+  searchField: { flex: 1, color: colors.textPrimary, fontSize: 15, padding: 0 },
+  searchResultsList: { maxHeight: 200, marginTop: 6 },
+  searchResultItem: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    paddingVertical: 10, paddingHorizontal: 4,
+    borderBottomWidth: 0.5, borderBottomColor: colors.border,
+  },
+  searchResultIcon: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: `${colors.primary}15`,
+    justifyContent: 'center', alignItems: 'center', marginTop: 2,
+  },
+  searchResultInfo: { flex: 1 },
+  searchResultHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+  },
+  searchResultChannel: { color: colors.primary, fontSize: 13, fontWeight: '600', flex: 1 },
+  searchResultTime: { color: colors.textDisabled, fontSize: 11 },
+  searchResultSender: { color: colors.textMuted, fontSize: 12, marginTop: 2 },
+  searchResultPreview: { color: colors.textPrimary, fontSize: 14, marginTop: 2, lineHeight: 18 },
+  noResults: { alignItems: 'center', paddingVertical: 20, gap: 8 },
+  noResultsText: { color: colors.textMuted, fontSize: 14, textAlign: 'center' },
 
   emptyState: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
   emptyIcon: {
