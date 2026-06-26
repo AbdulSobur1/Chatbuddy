@@ -22,6 +22,8 @@ export default function ChatScreen({ route, navigation }) {
   const {
     messagesByChannel, fetchMessages, subscribeToChannel, unsubscribeFromChannel,
     sendMessage, editMessage, deleteMessage, addReaction, removeReaction, uploadFile,
+    fetchReadStatus, subscribeToReadStatus, unsubscribeFromReadStatus, markChannelAsRead,
+    readStatusByChannel,
   } = useMessagesStore()
 
   const [text, setText] = useState('')
@@ -63,9 +65,23 @@ export default function ChatScreen({ route, navigation }) {
     fetchOther()
   }, [channel.id, user])
 
+  // Mark channel as read when messages update (new messages arrive via subscription)
+  const prevMessageCount = useRef(messages.length)
+  useEffect(() => {
+    if (messages.length > prevMessageCount.current) {
+      markChannelAsRead(channel.id)
+    }
+    prevMessageCount.current = messages.length
+  }, [messages.length])
+
   useEffect(() => {
     fetchMessages(channel.id)
     subscribeToChannel(channel.id)
+    fetchReadStatus(channel.id)
+    subscribeToReadStatus(channel.id)
+
+    // Mark channel as read on mount
+    markChannelAsRead(channel.id)
 
     // Typing indicator channel — listen & broadcast
     typingChannelRef.current = supabase.channel(`typing:${channel.id}`, {
@@ -107,6 +123,7 @@ export default function ChatScreen({ route, navigation }) {
       Object.values(typingTimersRef.current).forEach(clearTimeout)
       typingTimersRef.current = {}
       unsubscribeFromChannel(channel.id)
+      unsubscribeFromReadStatus(channel.id)
       if (typingChannelRef.current) {
         supabase.removeChannel(typingChannelRef.current)
       }
@@ -356,6 +373,25 @@ export default function ChatScreen({ route, navigation }) {
       reactionSummary[r.emoji] = (reactionSummary[r.emoji] || 0) + 1
     })
 
+    // Check read status
+    const readStatusMap = readStatusByChannel[channel.id] || {}
+    let isRead = false
+    if (isMine) {
+      // For DMs: check if the other user has read this message
+      // For groups: check if at least one other member has read it
+      if (channel.channel_type === 'dm' && otherUserInfo.id) {
+        const otherLastRead = readStatusMap[otherUserInfo.id]
+        if (otherLastRead) {
+          isRead = item.id <= otherLastRead
+        }
+      } else if (channel.channel_type === 'group' || channel.channel_type === 'broadcast') {
+        // Check if any other member has read it
+        isRead = Object.entries(readStatusMap)
+          .filter(([uid]) => uid !== user.id)
+          .some(([, lastReadId]) => lastReadId && item.id <= lastReadId)
+      }
+    }
+
     return (
       <TouchableOpacity
         onLongPress={() => handleLongPress(item)}
@@ -395,10 +431,20 @@ export default function ChatScreen({ route, navigation }) {
                 ))}
               </View>
             )}
-            <Text style={[styles.messageTime, isMine && styles.myMessageTime]}>
-              {formatTime(item.created_at)}
-              {item.edited_at && ' (edited)'}
-            </Text>
+            <View style={[styles.messageTimeRow, isMine && styles.myMessageTimeRow]}>
+              <Text style={[styles.messageTime, isMine && styles.myMessageTime]}>
+                {formatTime(item.created_at)}
+                {item.edited_at && ' (edited)'}
+              </Text>
+              {isMine && (
+                <Ionicons
+                  name={isRead ? 'checkmark-done' : 'checkmark'}
+                  size={14}
+                  color={isRead ? '#53bdeb' : colors.textDisabled}
+                  style={styles.readReceiptIcon}
+                />
+              )}
+            </View>
           </View>
         </View>
       </TouchableOpacity>
@@ -676,11 +722,21 @@ const styles = StyleSheet.create({
   messageTime: {
     color: colors.bubble.theirsTime,
     fontSize: 11,
-    marginTop: 4,
-    alignSelf: 'flex-end',
   },
   myMessageTime: {
     color: colors.bubble.mineTime,
+  },
+  messageTimeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginTop: 4,
+    gap: 3,
+  },
+  myMessageTimeRow: {
+  },
+  readReceiptIcon: {
+    marginTop: 1,
   },
   replyPreview: {
     backgroundColor: colors.bubble.theirs.replace ? colors.bubble.theirs + '20' : 'rgba(255,255,255,0.1)',
