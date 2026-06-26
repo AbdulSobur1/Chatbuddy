@@ -39,6 +39,7 @@ export default function ChatScreen({ route, navigation }) {
   const [showForwardPicker, setShowForwardPicker] = useState(false)
   const [forwardChannels, setForwardChannels] = useState([])
   const [forwarding, setForwarding] = useState(false)
+  const [lightboxImage, setLightboxImage] = useState(null)
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY)
 
   const messages = messagesByChannel[channel.id] || []
@@ -444,11 +445,13 @@ export default function ChatScreen({ route, navigation }) {
     // Image file
     if (item.file_url && item.file_url.match(/\.(jpg|jpeg|png|gif|webp)/i)) {
       return (
-        <Image
-          source={{ uri: item.file_url }}
-          style={styles.messageImage}
-          resizeMode="cover"
-        />
+        <TouchableOpacity onPress={() => setLightboxImage(item.file_url)} activeOpacity={0.9}>
+          <Image
+            source={{ uri: item.file_url }}
+            style={styles.messageImage}
+            resizeMode="cover"
+          />
+        </TouchableOpacity>
       )
     }
 
@@ -867,6 +870,26 @@ export default function ChatScreen({ route, navigation }) {
             </TouchableOpacity>
           </View>
         </View>
+      </Modal>
+
+      {/* Image Lightbox */}
+      <Modal visible={!!lightboxImage} transparent animationType="fade" onRequestClose={() => setLightboxImage(null)}>
+        <TouchableOpacity
+          style={styles.lightboxOverlay}
+          activeOpacity={1}
+          onPress={() => setLightboxImage(null)}
+        >
+          {lightboxImage && (
+            <Image
+              source={{ uri: lightboxImage }}
+              style={styles.lightboxImage}
+              resizeMode="contain"
+            />
+          )}
+          <TouchableOpacity style={styles.lightboxClose} onPress={() => setLightboxImage(null)}>
+            <Ionicons name="close-circle" size={32} color="#fff" />
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
     </SafeAreaView>
   )
@@ -1308,5 +1331,22 @@ const styles = StyleSheet.create({
   forwardEmptyText: {
     color: colors.textMuted,
     fontSize: 14,
+  },
+
+  // ── Image Lightbox ────────────────────────────────
+  lightboxOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  lightboxImage: {
+    width: '100%',
+    height: '80%',
+  },
+  lightboxClose: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
   },
 })
