@@ -8,7 +8,7 @@ import * as ImagePicker from 'expo-image-picker'
 import * as DocumentPicker from 'expo-document-picker'
 import { useAudioRecorder, requestRecordingPermissionsAsync, setAudioModeAsync, RecordingPresets } from 'expo-audio'
 import { Ionicons } from '@expo/vector-icons'
-import { useAuthStore, useMessagesStore } from '../lib/store'
+import { useAuthStore, useMessagesStore, useBlockStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
 import { colors } from '../lib/theme'
 import ChatHeader from '../components/ChatHeader'
@@ -45,6 +45,9 @@ export default function ChatScreen({ route, navigation }) {
   const typingTimersRef = useRef({})
   const [typingUserIds, setTypingUserIds] = useState(new Set())
   const [otherUserInfo, setOtherUserInfo] = useState({ id: null, name: '' })
+  const { blockUser, unblockUser, fetchBlockedUsers } = useBlockStore()
+  const blockedUserIds = useBlockStore((s) => s.blockedUserIds)
+  const [isBlockedState, setIsBlockedState] = useState(false)
 
   // Fetch the other user's info for DMs (both ID and name in one query)
   useEffect(() => {
@@ -65,6 +68,16 @@ export default function ChatScreen({ route, navigation }) {
     }
     fetchOther()
   }, [channel.id, user])
+
+  // Fetch block status
+  useEffect(() => {
+    if (!otherUserInfo.id) return
+    fetchBlockedUsers()
+  }, [otherUserInfo.id])
+
+  useEffect(() => {
+    setIsBlockedState(otherUserInfo.id ? blockedUserIds.has(otherUserInfo.id) : false)
+  }, [otherUserInfo.id, blockedUserIds])
 
   // Mark channel as read when messages update (new messages arrive via subscription)
   const prevMessageCount = useRef(messages.length)
@@ -152,8 +165,34 @@ export default function ChatScreen({ route, navigation }) {
     }, 2500)
   }
 
+  const handleBlockUser = async () => {
+    if (!otherUserInfo.id) return
+    try {
+      await blockUser(otherUserInfo.id)
+      setIsBlockedState(true)
+      toast.show(`${otherUserInfo.name || 'User'} blocked`, 'info')
+    } catch (error) {
+      toast.show('Failed to block user', 'error')
+    }
+  }
+
+  const handleUnblockUser = async () => {
+    if (!otherUserInfo.id) return
+    try {
+      await unblockUser(otherUserInfo.id)
+      setIsBlockedState(false)
+      toast.show(`${otherUserInfo.name || 'User'} unblocked`, 'success')
+    } catch (error) {
+      toast.show('Failed to unblock user', 'error')
+    }
+  }
+
   const handleSend = async () => {
     if (!text.trim() || sending) return
+    if (isBlockedState) {
+      toast.show('You cannot message a blocked user', 'warning')
+      return
+    }
     setSending(true)
     try {
       await sendMessage(channel.id, text.trim(), null, replyTo?.id)
@@ -467,6 +506,17 @@ export default function ChatScreen({ route, navigation }) {
         onMuteToggle={() => toggleMute(channel.id)}
       />
 
+      {/* Blocked banner */}
+      {isBlockedState && (
+        <View style={styles.blockedBanner}>
+          <Ionicons name="shield-outline" size={18} color={colors.danger} />
+          <Text style={styles.blockedBannerText}>You blocked {otherUserInfo.name || 'this user'}</Text>
+          <TouchableOpacity onPress={handleUnblockUser}>
+            <Text style={styles.unblockText}>Unblock</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Messages */}
       <FlatList
         ref={flatListRef}
@@ -647,6 +697,19 @@ export default function ChatScreen({ route, navigation }) {
                       <Text style={[styles.actionText, { color: '#ff4757' }]}>Delete</Text>
                     </TouchableOpacity>
                   </>
+                )}
+                {/* Block user option on their messages */}
+                {selectedMessage?.sender_id !== user.id && channel.channel_type === 'dm' && (
+                  <TouchableOpacity style={styles.actionItem} onPress={isBlockedState ? handleUnblockUser : handleBlockUser}>
+                    <Ionicons
+                      name={isBlockedState ? 'shield-checkmark-outline' : 'shield-outline'}
+                      size={22}
+                      color={isBlockedState ? colors.accent : colors.danger}
+                    />
+                    <Text style={[styles.actionText, { color: isBlockedState ? colors.accent : colors.danger }]}>
+                      {isBlockedState ? 'Unblock User' : 'Block User'}
+                    </Text>
+                  </TouchableOpacity>
                 )}
                 <TouchableOpacity
                   style={styles.cancelAction}
@@ -850,6 +913,29 @@ const styles = StyleSheet.create({
     color: colors.textTertiary,
     fontSize: 13,
     flex: 1,
+  },
+
+  // ── Blocked Banner ───────────────────────────────
+  blockedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: `${colors.danger}15`,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    gap: 8,
+    borderBottomWidth: 0.5,
+    borderBottomColor: colors.border,
+  },
+  blockedBannerText: {
+    color: colors.textSecondary,
+    fontSize: 13,
+    flex: 1,
+  },
+  unblockText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '600',
   },
 
   // ── Typing Indicator ────────────────────────────────
