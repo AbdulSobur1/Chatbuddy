@@ -36,6 +36,9 @@ export default function ChatScreen({ route, navigation }) {
   const [showEditModal, setShowEditModal] = useState(false)
   const [editText, setEditText] = useState('')
   const [isRecording, setIsRecording] = useState(false)
+  const [showForwardPicker, setShowForwardPicker] = useState(false)
+  const [forwardChannels, setForwardChannels] = useState([])
+  const [forwarding, setForwarding] = useState(false)
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY)
 
   const messages = messagesByChannel[channel.id] || []
@@ -316,6 +319,70 @@ export default function ChatScreen({ route, navigation }) {
   const handleLongPress = (msg) => {
     setSelectedMessage(msg)
     setShowActions(true)
+  }
+
+  const handleForward = async () => {
+    const msg = selectedMessage
+    if (!msg) return
+    setShowActions(false)
+
+    // Fetch all channels the user can forward to
+    const { data: channels } = await supabase
+      .from('channel_members')
+      .select('channel_id, channels!inner(id, name, channel_type)')
+      .eq('user_id', user.id)
+      .neq('channel_id', channel.id) // Exclude current channel
+      .in('channels.channel_type', ['dm', 'group'])
+
+    if (channels) {
+      const unique = {}
+      channels.forEach((c) => {
+        if (c.channels && !unique[c.channel_id]) {
+          unique[c.channel_id] = c.channels
+        }
+      })
+      const list = Object.values(unique).sort((a, b) => a.name?.localeCompare(b.name))
+
+      // Fetch display names for DM channels
+      const enriched = await Promise.all(list.map(async (ch) => {
+        if (ch.channel_type === 'dm') {
+          const { data: member } = await supabase
+            .from('channel_members')
+            .select('user:user_id(display_name)')
+            .eq('channel_id', ch.id)
+            .neq('user_id', user.id)
+            .maybeSingle()
+          return { ...ch, displayName: member?.user?.display_name || ch.name }
+        }
+        return { ...ch, displayName: ch.name }
+      }))
+
+      setForwardChannels(enriched)
+      setShowForwardPicker(true)
+    }
+  }
+
+  const handleForwardSubmit = async (targetChannel) => {
+    const msg = selectedMessage
+    if (!msg) return
+    setForwarding(true)
+
+    const forwardedContent = msg.content
+      ? `📨 Forwarded: ${msg.content}`
+      : msg.file_url
+        ? '📨 Forwarded: 📎 File'
+        : '📨 Forwarded message'
+
+    try {
+      await sendMessage(targetChannel.id, forwardedContent, msg.file_url || null)
+      toast.show('Message forwarded!', 'success')
+      setShowForwardPicker(false)
+      setSelectedMessage(null)
+    } catch (error) {
+      toast.show(error.message || 'Forward failed', 'error')
+    } finally {
+      setForwarding(false)
+    }
   }
 
   const handleReact = async (emoji) => {
@@ -686,6 +753,13 @@ export default function ChatScreen({ route, navigation }) {
                   <Ionicons name="happy-outline" size={22} color="#fff" />
                   <Text style={styles.actionText}>React</Text>
                 </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionItem}
+                  onPress={handleForward}
+                >
+                  <Ionicons name="arrow-forward" size={22} color="#fff" />
+                  <Text style={styles.actionText}>Forward</Text>
+                </TouchableOpacity>
                 {selectedMessage?.sender_id === user.id && (
                   <>
                     <TouchableOpacity style={styles.actionItem} onPress={handleEdit}>
@@ -742,6 +816,57 @@ export default function ChatScreen({ route, navigation }) {
             )}
           </View>
         </TouchableOpacity>
+      </Modal>
+
+      {/* Forward Message - Channel Picker */}
+      <Modal visible={showForwardPicker} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.forwardSheet}>
+            <View style={styles.forwardHeader}>
+              <Text style={styles.forwardTitle}>Forward to...</Text>
+              <TouchableOpacity onPress={() => { setShowForwardPicker(false); setSelectedMessage(null) }}>
+                <Ionicons name="close" size={24} color={colors.textMuted} />
+              </TouchableOpacity>
+            </View>
+            {forwardChannels.length === 0 ? (
+              <View style={styles.forwardEmpty}>
+                <Ionicons name="chatbubbles-outline" size={40} color={colors.textDisabled} />
+                <Text style={styles.forwardEmptyText}>No other chats to forward to</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={forwardChannels}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.forwardItem}
+                    onPress={() => handleForwardSubmit(item)}
+                    disabled={forwarding}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.forwardIcon, {
+                      backgroundColor: item.channel_type === 'dm' ? `${colors.primary}20` : `${colors.accent}20`,
+                    }]}>
+                      <Ionicons
+                        name={item.channel_type === 'dm' ? 'person' : 'people'}
+                        size={20}
+                        color={item.channel_type === 'dm' ? colors.primary : colors.accent}
+                      />
+                    </View>
+                    <Text style={styles.forwardItemName} numberOfLines={1}>
+                      {item.displayName}
+                    </Text>
+                    {forwarding && <ActivityIndicator size="small" color={colors.primary} />}
+                  </TouchableOpacity>
+                )}
+                style={{ maxHeight: 300 }}
+              />
+            )}
+            <TouchableOpacity style={styles.forwardCancel} onPress={() => { setShowForwardPicker(false); setSelectedMessage(null) }}>
+              <Text style={styles.forwardCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   )
@@ -1121,5 +1246,67 @@ const styles = StyleSheet.create({
   },
   emojiText: {
     fontSize: 28,
+  },
+
+  // ── Forward Message ────────────────────────────────
+  forwardSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 40,
+    maxHeight: '60%',
+  },
+  forwardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  forwardTitle: {
+    color: colors.textPrimary,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  forwardItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    gap: 12,
+    borderBottomWidth: 0.5,
+    borderBottomColor: colors.border,
+  },
+  forwardIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  forwardItemName: {
+    flex: 1,
+    color: colors.textPrimary,
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  forwardCancel: {
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  forwardCancelText: {
+    color: colors.textTertiary,
+    fontSize: 16,
+  },
+  forwardEmpty: {
+    alignItems: 'center',
+    paddingVertical: 30,
+    gap: 8,
+  },
+  forwardEmptyText: {
+    color: colors.textMuted,
+    fontSize: 14,
   },
 })
