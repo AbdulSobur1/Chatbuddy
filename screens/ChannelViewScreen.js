@@ -58,7 +58,8 @@ export default function ChannelViewScreen({ route, navigation }) {
       setText('')
       fetchMessages()
     } catch (error) {
-      toast.show(error.message || 'Failed to send', 'error')
+      console.error('Admin send error:', error)
+      toast.show(error.message?.includes('integer to interval') ? 'Database error — run the latest SQL migration in Supabase' : error.message || 'Failed to send', 'error')
     } finally {
       setSending(false)
     }
