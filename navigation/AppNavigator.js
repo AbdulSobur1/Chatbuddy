@@ -5,6 +5,7 @@ import {
 import { createNativeStackNavigator } from '@react-navigation/native-stack'
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs'
 import { NavigationContainer } from '@react-navigation/native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 
 import { useAuthStore } from '../lib/store'
@@ -60,6 +61,7 @@ const PILL_MARGIN = 4
 // ─── Animated Tab Bar ──────────────────────────────────────────
 function AnimatedTabBar({ state, descriptors, navigation }) {
   const colors = useColors()
+  const insets = useSafeAreaInsets()
   const tabCount = state.routes.length
   const pillAnim = useRef(new Animated.Value(0)).current
   const prevIndex = useRef(state.index)
@@ -88,7 +90,7 @@ function AnimatedTabBar({ state, descriptors, navigation }) {
   })
 
   const styles = useMemo(() => StyleSheet.create({
-    container: { backgroundColor: colors.bg, paddingBottom: Platform.OS === 'ios' ? 20 : 6, paddingTop: 6 },
+    container: { backgroundColor: colors.bg, paddingBottom: insets.bottom || (Platform.OS === 'ios' ? 20 : 6), paddingTop: 6 },
     inner: {
       flexDirection: 'row', backgroundColor: colors.surface, marginHorizontal: 12,
       borderRadius: radius.xl, paddingVertical: 4, position: 'relative',
@@ -276,7 +278,7 @@ function SettingsStack({ screenOptions }) {
 // ─── Main Bottom Tabs ──────────────────────────────────────────
 function MainTabs({ screenOptions }) {
   return (
-    <Tab.Navigator tabBar={(props) => <AnimatedTabBar {...props} />} screenOptions={{ headerShown: false }}>
+    <Tab.Navigator tabBar={(props) => <AnimatedTabBar {...props} />} screenOptions={{ headerShown: false, freezeOnBlur: true }}>
       <Tab.Screen name="ChatsTab" children={() => <ChatsStack screenOptions={screenOptions} />} />
       <Tab.Screen name="ChannelsTab" children={() => <ChannelsStack screenOptions={screenOptions} />} />
       <Tab.Screen name="GroupsTab" children={() => <GroupsStack screenOptions={screenOptions} />} />

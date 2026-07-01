@@ -8,7 +8,7 @@ import * as ImagePicker from 'expo-image-picker'
 import { useFocusEffect } from '@react-navigation/native'
 import { Ionicons } from '@expo/vector-icons'
 import { supabase } from '../lib/supabase'
-import { useAuthStore, useMessagesStore } from '../lib/store'
+import { useAuthStore, useMessagesStore, useDMsStore } from '../lib/store'
 import { useColors, radius, shadows } from '../lib/theme'
 import { useToast } from '../components/Toast'
 import { StorySkeleton } from '../components/Skeleton'
@@ -21,6 +21,8 @@ export default function UpdatesScreen({ navigation }) {
   const colors = useColors()
   const user = useAuthStore((s) => s.user)
   const uploadFile = useMessagesStore((s) => s.uploadFile)
+  const sendMessage = useMessagesStore((s) => s.sendMessage)
+  const startDirectChat = useDMsStore((s) => s.startDirectChat)
   const [myStatuses, setMyStatuses] = useState([])
   const [contactStatuses, setContactStatuses] = useState([])
   const [allContacts, setAllContacts] = useState([])
@@ -37,6 +39,12 @@ export default function UpdatesScreen({ navigation }) {
   const [viewingUser, setViewingUser] = useState(null)
   const [currentStatusIndex, setCurrentStatusIndex] = useState(0)
   const [viewerNames, setViewerNames] = useState('')
+  const [reactions, setReactions] = useState([])
+  const [comments, setComments] = useState([])
+  const [showCommentInput, setShowCommentInput] = useState(false)
+  const [commentText, setCommentText] = useState('')
+  const [sendingComment, setSendingComment] = useState(false)
+
   const styles = useMemo(() => makeStyles(colors), [colors])
 
   const [viewedIds, setViewedIds] = useState(new Set())
@@ -170,17 +178,106 @@ export default function UpdatesScreen({ navigation }) {
     ])
   }
 
+  // ── Reactions ─────────────────────────────────────────────
+  const REACTION_EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🙏']
+
+  const fetchReactions = async (statusId) => {
+    const { data } = await supabase
+      .from('status_reactions')
+      .select('*, user:user_id(display_name)')
+      .eq('status_id', statusId)
+    setReactions(data || [])
+  }
+
+  const addReaction = async (statusId, emoji) => {
+    if (!user) return
+    const status = viewingUser?.statuses?.[currentStatusIndex]
+    if (!status) return
+
+    // Check if user already reacted with this emoji
+    const existing = reactions.find((r) => r.user_id === user.id && r.emoji === emoji)
+    if (existing) {
+      // Remove reaction
+      await supabase.from('status_reactions').delete().eq('id', existing.id)
+    } else {
+      // Add reaction
+      await supabase.from('status_reactions').insert({
+        status_id: statusId, user_id: user.id, emoji,
+      })
+
+      // Send DM notification to uploader (only if reacting to someone else's status)
+      if (status.user_id !== user.id) {
+        try {
+          const channel = await startDirectChat(status.user_id)
+          if (channel) {
+            const senderName = user.email?.split('@')[0] || 'Someone'
+            await sendMessage(channel.id, `${senderName} reacted ${emoji} to your status`)
+          }
+        } catch (e) {
+          console.warn('Failed to send reaction DM:', e)
+        }
+      }
+    }
+    fetchReactions(statusId)
+  }
+
+  const fetchComments = async (statusId) => {
+    const { data } = await supabase
+      .from('status_comments')
+      .select('*, user:user_id(display_name)')
+      .eq('status_id', statusId)
+      .order('created_at', { ascending: true })
+    setComments(data || [])
+  }
+
+  const addComment = async (statusId) => {
+    if (!commentText.trim() || sendingComment || !user) return
+    setSendingComment(true)
+    const status = viewingUser?.statuses?.[currentStatusIndex]
+    try {
+      await supabase.from('status_comments').insert({
+        status_id: statusId, user_id: user.id, content: commentText.trim(),
+      })
+      setCommentText('')
+      setShowCommentInput(false)
+      fetchComments(statusId)
+
+      // Send DM notification to uploader
+      if (status && status.user_id !== user.id) {
+        try {
+          const channel = await startDirectChat(status.user_id)
+          if (channel) {
+            const senderName = user.email?.split('@')[0] || 'Someone'
+            await sendMessage(channel.id, `💬 ${senderName} commented on your status: "${commentText.trim()}"`)
+          }
+        } catch (e) {
+          console.warn('Failed to send comment DM:', e)
+        }
+      }
+    } catch (e) {
+      toast.show('Failed to add comment', 'error')
+    } finally {
+      setSendingComment(false)
+    }
+  }
+
   const openStory = async (statusUser, statuses) => {
     setViewingUser({ user: statusUser, statuses })
     setCurrentStatusIndex(0)
+    setReactions([])
+    setComments([])
 
     const firstStatus = statuses[0]
-    if (firstStatus && !viewedIds.has(firstStatus.id)) {
-      await supabase.from('status_views').upsert(
-        { status_id: firstStatus.id, viewer_id: user.id },
-        { onConflict: 'status_id, viewer_id' }
-      )
-      setViewedIds((prev) => new Set(prev).add(firstStatus.id))
+    if (firstStatus) {
+      if (!viewedIds.has(firstStatus.id) && firstStatus.user_id !== user.id) {
+        await supabase.from('status_views').upsert(
+          { status_id: firstStatus.id, viewer_id: user.id },
+          { onConflict: 'status_id, viewer_id' }
+        )
+        setViewedIds((prev) => new Set(prev).add(firstStatus.id))
+      }
+      fetchReactions(firstStatus.id)
+      fetchComments(firstStatus.id)
     }
     await fetchViewerNames(firstStatus)
   }
@@ -207,14 +304,18 @@ export default function UpdatesScreen({ navigation }) {
       return
     }
     setCurrentStatusIndex(newIndex)
+    setReactions([])
+    setComments([])
     const status = viewingUser.statuses[newIndex]
-    if (!viewedIds.has(status.id)) {
+    if (!viewedIds.has(status.id) && status.user_id !== user.id) {
       await supabase.from('status_views').upsert(
         { status_id: status.id, viewer_id: user.id },
         { onConflict: 'status_id, viewer_id' }
       )
       setViewedIds((prev) => new Set(prev).add(status.id))
     }
+    fetchReactions(status.id)
+    fetchComments(status.id)
     await fetchViewerNames(status)
   }
 
@@ -330,6 +431,7 @@ export default function UpdatesScreen({ navigation }) {
   const renderStoryContent = (status) => {
     if (!status) return null
     const isImage = status.media_type === 'image' && status.media_url
+    const isMyStatus = status.user_id === user.id
 
     return (
       <TouchableOpacity
@@ -341,11 +443,17 @@ export default function UpdatesScreen({ navigation }) {
             navigateStory(-1)
           } else if (x > (SCREEN_WIDTH * 2) / 3) {
             navigateStory(1)
-          } else {
-            closeStory()
           }
         }}
       >
+        {isMyStatus && (
+          <TouchableOpacity
+            style={styles.storyDeleteBtn}
+            onPress={() => deleteStatus(status.id)}
+          >
+            <Ionicons name="trash-outline" size={22} color="#ff4757" />
+          </TouchableOpacity>
+        )}
         {isImage ? (
           <View style={styles.storyImageContainer}>
             <Image
@@ -569,16 +677,92 @@ export default function UpdatesScreen({ navigation }) {
           {/* Story content */}
           {renderStoryContent(viewingUser?.statuses?.[currentStatusIndex])}
 
-          {/* Bottom info */}
+          {/* Reactions Bar */}
+          {viewingUser && viewingUser.statuses[currentStatusIndex] && (
+            <View style={styles.storyReactions}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 20, paddingHorizontal: 20 }}>
+                {REACTION_EMOJIS.map((emoji) => {
+                  const currentStatus = viewingUser.statuses[currentStatusIndex]
+                  const userReacted = reactions.some((r) => r.user_id === user.id && r.emoji === emoji)
+                  return (
+                    <TouchableOpacity
+                      key={emoji}
+                      style={[styles.reactionBtn, userReacted && styles.reactionBtnActive]}
+                      onPress={() => addReaction(currentStatus.id, emoji)}
+                    >
+                      <Text style={styles.reactionEmoji}>{emoji}</Text>
+                      {reactions.filter((r) => r.emoji === emoji).length > 0 && (
+                        <Text style={styles.reactionCount}>
+                          {reactions.filter((r) => r.emoji === emoji).length}
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  )
+                })}
+              </ScrollView>
+            </View>
+          )}
+
+          {/* Comments */}
+          {comments.length > 0 && (
+            <ScrollView style={styles.commentsList} horizontal={false}>
+              {comments.map((c) => (
+                <View key={c.id} style={styles.commentItem}>
+                  <Text style={styles.commentUser}>{c.user?.display_name || 'Someone'}</Text>
+                  <Text style={styles.commentContent}>{c.content}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          )}
+
+          {/* Bottom bar with comment input */}
           <View style={styles.storyBottomBar}>
-            {viewerNames ? (
-              <Text style={styles.storyViewerText}>
-                <Ionicons name="eye-outline" size={14} color={colors.textTertiary} /> Seen by {viewerNames}
-              </Text>
+            {showCommentInput ? (
+              <View style={styles.commentInputRow}>
+                <TextInput
+                  style={styles.commentInput}
+                  placeholder="Write a comment..."
+                  placeholderTextColor={colors.textMuted}
+                  value={commentText}
+                  onChangeText={setCommentText}
+                  autoFocus
+                  multiline
+                  maxLength={200}
+                />
+                <TouchableOpacity
+                  style={styles.commentSendBtn}
+                  onPress={() => {
+                    const currentStatus = viewingUser?.statuses?.[currentStatusIndex]
+                    if (currentStatus) addComment(currentStatus.id)
+                  }}
+                  disabled={!commentText.trim() || sendingComment}
+                >
+                  {sendingComment ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Ionicons name="send" size={18} color="#fff" />
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => setShowCommentInput(false)} style={{ padding: 4 }}>
+                  <Ionicons name="close" size={20} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
             ) : (
-              <Text style={styles.storyViewerText}>
-                <Ionicons name="eye-off-outline" size={14} color={colors.textMuted} /> No views yet
-              </Text>
+              <View style={styles.storyActions}>
+                <TouchableOpacity style={styles.storyActionBtn} onPress={() => setShowCommentInput(true)}>
+                  <Ionicons name="chatbubble-outline" size={22} color="#fff" />
+                  <Text style={styles.storyActionText}>Comment</Text>
+                </TouchableOpacity>
+                {viewerNames ? (
+                  <Text style={styles.storyViewerText}>
+                    <Ionicons name="eye-outline" size={14} color={colors.textTertiary} /> Seen by {viewerNames}
+                  </Text>
+                ) : (
+                  <Text style={styles.storyViewerText}>
+                    <Ionicons name="eye-off-outline" size={14} color={colors.textMuted} /> No views yet
+                  </Text>
+                )}
+              </View>
             )}
             {viewingUser && viewingUser.statuses.length > 1 && (
               <View style={styles.storyDots}>
@@ -716,7 +900,13 @@ const makeStyles = (colors) => StyleSheet.create({
   storyCloseBtn: { padding: 8 },
   storyContentArea: {
     flex: 1, justifyContent: 'center', alignItems: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 8, position: 'relative',
+  },
+  storyDeleteBtn: {
+    position: 'absolute', top: 8, right: 8, zIndex: 10,
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center', alignItems: 'center',
   },
   storyImageContainer: {
     flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center',
@@ -734,9 +924,78 @@ const makeStyles = (colors) => StyleSheet.create({
     justifyContent: 'center', alignItems: 'center',
   },
   storyContentText: { color: '#fff', fontSize: 22, lineHeight: 32, textAlign: 'center' },
+  
+  // ─── Story Reactions ─────────────────────────────────────
+  storyReactions: {
+    paddingVertical: 12,
+    borderTopWidth: 0.5, borderTopColor: 'rgba(255,255,255,0.1)',
+  },
+  reactionBtn: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    justifyContent: 'center', alignItems: 'center',
+    position: 'relative',
+  },
+  reactionBtnActive: {
+    backgroundColor: 'rgba(108,99,255,0.3)',
+    borderWidth: 2, borderColor: colors.primary,
+  },
+  reactionEmoji: { fontSize: 22 },
+  reactionCount: {
+    position: 'absolute', top: -4, right: -4,
+    backgroundColor: colors.primary, color: '#fff',
+    fontSize: 10, fontWeight: '700',
+    width: 18, height: 18, borderRadius: 9,
+    textAlign: 'center', lineHeight: 18,
+    overflow: 'hidden',
+  },
+
+  // ─── Story Comments ──────────────────────────────────────
+  commentsList: {
+    maxHeight: 120,
+    paddingHorizontal: 16,
+  },
+  commentItem: {
+    flexDirection: 'row', alignItems: 'flex-start',
+    gap: 8, marginBottom: 6,
+  },
+  commentUser: {
+    color: colors.primary, fontSize: 13, fontWeight: '600',
+  },
+  commentContent: { color: '#fff', fontSize: 13, flex: 1 },
+
   storyBottomBar: { alignItems: 'center', paddingHorizontal: 24, paddingBottom: 48, gap: 12 },
   storyViewerText: { color: colors.textTertiary, fontSize: 14, textAlign: 'center' },
   storyDots: { flexDirection: 'row', gap: 8 },
   storyDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.textDisabled },
   storyDotActive: { backgroundColor: colors.primary, width: 24 },
+
+  // ─── Story Actions ───────────────────────────────────────
+  storyActions: {
+    flexDirection: 'row', alignItems: 'center',
+    justifyContent: 'space-between', width: '100%',
+  },
+  storyActionBtn: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 6, paddingVertical: 8, paddingHorizontal: 16,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 20,
+  },
+  storyActionText: { color: '#fff', fontSize: 14, fontWeight: '500' },
+
+  // ─── Comment Input ──────────────────────────────────────
+  commentInputRow: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 8, width: '100%',
+  },
+  commentInput: {
+    flex: 1, backgroundColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 20, paddingHorizontal: 16, paddingVertical: 8,
+    color: '#fff', fontSize: 14, maxHeight: 80,
+  },
+  commentSendBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: colors.primary,
+    justifyContent: 'center', alignItems: 'center',
+  },
 })

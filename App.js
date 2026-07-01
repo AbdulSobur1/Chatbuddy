@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { StatusBar } from 'expo-status-bar'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import { SafeAreaProvider } from 'react-native-safe-area-context'
 import AppNavigator from './navigation/AppNavigator'
 import { useAuthStore } from './lib/store'
 import { supabase } from './lib/supabase'
@@ -52,12 +53,14 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <ThemeProvider>
-        <ToastProvider>
-          <StatusBar style={statusBarStyle} />
-          <AppNavigator />
-        </ToastProvider>
-      </ThemeProvider>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <ToastProvider>
+            <StatusBar style={statusBarStyle} />
+            <AppNavigator />
+          </ToastProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   )
 }

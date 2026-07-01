@@ -2,8 +2,8 @@ import React, { useState, useRef, useEffect, useMemo } from 'react'
 import {
   View, Text, TouchableOpacity, StyleSheet,
   KeyboardAvoidingView, Platform, Animated, Dimensions,
-  SafeAreaView,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuthStore } from '../lib/store'
 import { useColors, radius, shadows } from '../lib/theme'

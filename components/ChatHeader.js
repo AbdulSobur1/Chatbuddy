@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useMemo } from 'react'
 import { View, Text, TouchableOpacity, StyleSheet, Animated, Platform } from 'react-native'
+import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LinearGradient } from 'expo-linear-gradient'
 import { Ionicons } from '@expo/vector-icons'
 import { useColors } from '../lib/theme'
@@ -26,6 +27,7 @@ function CallButton({ icon, color, onPress }) {
 
 export default function ChatHeader({ channel, onBack, onAudioCall, onVideoCall, onGroupInfo, onMuteToggle, isMuted, online }) {
   const colors = useColors()
+  const insets = useSafeAreaInsets()
   const slideAnim = useRef(new Animated.Value(-80)).current
   const fadeAnim = useRef(new Animated.Value(0)).current
   const backScale = useRef(new Animated.Value(0)).current
@@ -48,7 +50,7 @@ export default function ChatHeader({ channel, onBack, onAudioCall, onVideoCall, 
 
   const styles = useMemo(() => StyleSheet.create({
     container: { zIndex: 100, elevation: 10 },
-    gradient: { paddingTop: Platform.OS === 'ios' ? 44 : 8 },
+    gradient: { paddingTop: insets.top || (Platform.OS === 'ios' ? 44 : 8) },
     content: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 4, paddingVertical: 10 },
     backWrapper: { marginLeft: 4 },
     backButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.08)', justifyContent: 'center', alignItems: 'center' },

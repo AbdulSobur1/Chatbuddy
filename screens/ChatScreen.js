@@ -2,19 +2,20 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView, Platform, Alert,
-  ActivityIndicator, Image, Modal, SafeAreaView, Animated,
+  ActivityIndicator, Image, Modal, Animated,
   Share,
 } from 'react-native'
+import { SafeAreaView } from 'react-native-safe-area-context'
 import * as ImagePicker from 'expo-image-picker'
 import * as DocumentPicker from 'expo-document-picker'
-import { useAudioRecorder, requestRecordingPermissionsAsync, setAudioModeAsync, RecordingPresets } from 'expo-audio'
 import { Ionicons } from '@expo/vector-icons'
 import { Swipeable } from 'react-native-gesture-handler'
 import { useAuthStore, useMessagesStore, useBlockStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
-import { useColors } from '../lib/theme'
+import { useColors, radius } from '../lib/theme'
 import ChatHeader from '../components/ChatHeader'
 import { useToast } from '../components/Toast'
+import VoiceRecorderButton from '../components/VoiceRecorderButton'
 import { playTypingSound, cleanupSounds } from '../lib/sounds'
 
 const EMOJI_LIST = ['👍', '❤️', '😂', '😮', '😢', '🙏']
@@ -65,8 +66,6 @@ export default function ChatScreen({ route, navigation }) {
   const [fetchingReplies, setFetchingReplies] = useState(false)
   const [expandedTranscripts, setExpandedTranscripts] = useState({})
   const [transcripts, setTranscripts] = useState({})
-
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY)
 
   const messages = messagesByChannel[channel.id] || []
   const flatListRef = useRef(null)
@@ -373,40 +372,9 @@ export default function ChatScreen({ route, navigation }) {
     }
   }
 
-  const startRecording = async () => {
-    try {
-      const { granted } = await requestRecordingPermissionsAsync()
-      if (!granted) {
-        toast.show('Microphone access is required for voice notes', 'warning')
-        return
-      }
-
-      await setAudioModeAsync({
-        allowsRecording: true,
-        playsInSilentMode: true,
-      })
-
-      await recorder.prepareToRecordAsync()
-      recorder.record()
-      setIsRecording(true)
-    } catch (error) {
-      toast.show(error.message || 'Recording failed', 'error')
-    }
-  }
-
-  const stopRecording = async () => {
-    if (!recorder.isRecording) return
-    setIsRecording(false)
+  const handleVoiceRecordingComplete = async (uri) => {
     setSending(true)
     try {
-      await recorder.stop()
-      const uri = recorder.uri
-
-      if (!uri) {
-        toast.show('Failed to get recording', 'error')
-        return
-      }
-
       const publicUrl = await uploadFile(uri, `voice-${Date.now()}.m4a`)
       await sendMessage(channel.id, '🎤 Voice note', publicUrl, replyTo?.id)
       setReplyTo(null)
@@ -1048,17 +1016,7 @@ export default function ChatScreen({ route, navigation }) {
               )}
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity
-              style={[styles.sendButton, isRecording && styles.recordingButton]}
-              onPressIn={startRecording}
-              onPressOut={stopRecording}
-            >
-              <Ionicons
-                name={isRecording ? 'mic' : 'mic-outline'}
-                size={22}
-                color="#fff"
-              />
-            </TouchableOpacity>
+            <VoiceRecorderButton onRecordingComplete={handleVoiceRecordingComplete} />
           )}
         </View>
       </KeyboardAvoidingView>
@@ -1712,9 +1670,7 @@ const makeStyles = (colors) => StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  recordingButton: {
-    backgroundColor: colors.danger,
-  },
+
   editModalOverlay: {
     flex: 1,
     backgroundColor: colors.overlay,
