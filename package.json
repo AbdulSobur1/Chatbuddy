@@ -29,10 +29,20 @@
     "react-native": "0.85.3",
     "react-native-gesture-handler": "~2.31.1",
     "react-native-safe-area-context": "~5.7.0",
-    "react-native-screens": "4.25.2",
+    "react-native-screens": "4.25.1",
     "react-native-url-polyfill": "^3.0.0",
     "typescript": "~6.0.3",
     "zustand": "^5.0.14"
+  },
+  "expo": {
+    "install": {
+      "exclude": ["react-native-screens"]
+    },
+    "doctor": {
+      "reactNativeDirectoryCheck": {
+        "exclude": []
+      }
+    }
   },
   "scripts": {
     "start": "expo start",
