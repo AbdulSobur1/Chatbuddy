@@ -37,6 +37,9 @@ class ErrorBoundary extends React.Component {
           {__DEV__ && this.state.error && (
             <View style={[styles.devBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
               <Text style={[styles.devLabel, { color: colors.danger }]}>DEV: {this.state.error?.message}</Text>
+              <Text style={[styles.devLabel, { color: colors.textTertiary, marginTop: 8, fontSize: 10 }]}>
+                {this.state.error?.stack?.split('\n').slice(0, 6).join('\n')}
+              </Text>
             </View>
           )}
         </View>
