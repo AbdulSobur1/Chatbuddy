@@ -34,11 +34,11 @@ class ErrorBoundary extends React.Component {
             <Ionicons name="refresh" size={18} color="#fff" style={{ marginRight: 6 }} />
             <Text style={styles.buttonText}>Try Again</Text>
           </TouchableOpacity>
-          {__DEV__ && this.state.error && (
+          {this.state.error && (
             <View style={[styles.devBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <Text style={[styles.devLabel, { color: colors.danger }]}>DEV: {this.state.error?.message}</Text>
+              <Text style={[styles.devLabel, { color: colors.danger }]}>Error: {this.state.error?.message}</Text>
               <Text style={[styles.devLabel, { color: colors.textTertiary, marginTop: 8, fontSize: 10 }]}>
-                {this.state.error?.stack?.split('\n').slice(0, 6).join('\n')}
+                {this.state.error?.stack?.split('\n').slice(0, 4).join('\n')}
               </Text>
             </View>
           )}
