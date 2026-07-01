@@ -16,6 +16,7 @@
     "expo-dev-client": "~56.0.20",
     "expo-device": "~56.0.4",
     "expo-document-picker": "~56.0.4",
+    "expo-file-system": "~56.0.8",
     "expo-font": "~56.0.7",
     "expo-image-picker": "~56.0.18",
     "expo-linear-gradient": "~56.0.4",
@@ -36,7 +37,9 @@
   },
   "expo": {
     "install": {
-      "exclude": ["react-native-screens"]
+      "exclude": [
+        "react-native-screens"
+      ]
     },
     "doctor": {
       "reactNativeDirectoryCheck": {

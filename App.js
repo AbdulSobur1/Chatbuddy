@@ -6,7 +6,7 @@ import { useAuthStore } from './lib/store'
 import { supabase } from './lib/supabase'
 import { registerForPushNotifications, addNotificationTapListener } from './lib/notifications'
 import { ToastProvider } from './components/Toast'
-import { ThemeProvider, getThemeMode, subscribeToTheme } from './lib/theme'
+import { ThemeProvider, getThemeMode, subscribeToTheme, loadThemePreferences } from './lib/theme'
 
 export default function App() {
   const loadSession = useAuthStore((s) => s.loadSession)
@@ -15,6 +15,7 @@ export default function App() {
 
   useEffect(() => {
     loadSession()
+    loadThemePreferences()
   }, [])
 
   // ─── Listen for theme changes to update StatusBar ─────────

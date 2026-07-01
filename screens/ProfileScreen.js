@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { View, Text, StyleSheet, ActivityIndicator, ScrollView, TouchableOpacity, Modal, Share, Image } from 'react-native'
 import * as ImagePicker from 'expo-image-picker'
+import * as FileSystem from 'expo-file-system'
 import { Ionicons } from '@expo/vector-icons'
 import { useAuthStore } from '../lib/store'
 import { supabase } from '../lib/supabase'
@@ -56,12 +57,14 @@ export default function ProfileScreen() {
       const fileExt = uri.split('.').pop() || 'jpg'
       const filePath = `avatars/${user.id}/${Date.now()}.${fileExt}`
 
-      const response = await fetch(uri)
-      const blob = await response.blob()
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 })
+      const binaryStr = atob(base64)
+      const bytes = new Uint8Array(binaryStr.length)
+      for (let i = 0; i < binaryStr.length; i++) { bytes[i] = binaryStr.charCodeAt(i) }
 
       const { error: uploadError } = await supabase.storage
         .from('chat-media')
-        .upload(filePath, blob, { contentType: blob.type || 'image/jpeg', upsert: true })
+        .upload(filePath, bytes.buffer, { contentType: 'image/jpeg', upsert: true })
       if (uploadError) throw uploadError
 
       const { data: { publicUrl } } = supabase.storage.from('chat-media').getPublicUrl(filePath)
