@@ -32,6 +32,9 @@ import CreateChannelScreen from '../screens/CreateChannelScreen'
 import CreateGroupScreen from '../screens/CreateGroupScreen'
 import InviteScreen from '../screens/InviteScreen'
 
+// AI Assistant
+import AIAssistantScreen from '../screens/AIAssistantScreen'
+
 import ErrorBoundary from '../components/ErrorBoundary'
 import { PageSkeleton } from '../components/Skeleton'
 
@@ -201,6 +204,7 @@ function ChatsStack({ screenOptions }) {
         <Stack.Screen name="ChatsList" component={ChatsListScreen} options={{ title: 'ChatBuddy', headerLargeTitle: true }} />
         <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
         <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
+        <Stack.Screen name="AIAssistant" component={AIAssistantScreen} options={{ headerShown: false }} />
       </Stack.Navigator>
     </ErrorBoundary>
   )

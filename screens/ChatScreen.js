@@ -59,6 +59,13 @@ export default function ChatScreen({ route, navigation }) {
   const [exporting, setExporting] = useState(false)
   const [showSchedule, setShowSchedule] = useState(false)
   const [scheduling, setScheduling] = useState(false)
+
+  // ── Smart Reply Suggestions ───────────────────────
+  const [smartReplies, setSmartReplies] = useState([])
+  const [fetchingReplies, setFetchingReplies] = useState(false)
+  const [expandedTranscripts, setExpandedTranscripts] = useState({})
+  const [transcripts, setTranscripts] = useState({})
+
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY)
 
   const messages = messagesByChannel[channel.id] || []
@@ -243,6 +250,81 @@ export default function ChatScreen({ route, navigation }) {
     return () => clearInterval(interval)
   }, [])
 
+  // ── Smart Reply: Trigger when new messages arrive from others ─
+  const prevMsgLength = useRef(0)
+  useEffect(() => {
+    if (messages.length === 0) return
+    const lastMsg = messages[messages.length - 1]
+    // Only suggest replies if the last message is from someone else
+    if (lastMsg.sender_id !== user.id && messages.length > prevMsgLength.current) {
+      fetchSmartReplies()
+    }
+    prevMsgLength.current = messages.length
+  }, [messages.length])
+
+  const fetchSmartReplies = async () => {
+    if (fetchingReplies || !user) return
+    setFetchingReplies(true)
+    try {
+      const last3 = messages.slice(-3).map((m) => ({
+        role: m.sender_id === user.id ? 'user' : 'other',
+        content: m.content || (m.file_url ? '[Sent a file]' : ''),
+      })).filter((m) => m.content)
+
+      if (last3.length === 0) { setFetchingReplies(false); return }
+
+      const { data: { session } } = await supabase.auth.getSession()
+      const token = session?.access_token
+      if (!token) { setFetchingReplies(false); return }
+
+      const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL
+      if (!supabaseUrl) { setFetchingReplies(false); return }
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/smart-reply`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ contextMessages: last3 }),
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        if (data.suggestions && data.suggestions.length > 0) {
+          setSmartReplies(data.suggestions)
+        }
+      }
+    } catch (error) {
+      console.error('Smart reply error:', error)
+    } finally {
+      setFetchingReplies(false)
+    }
+  }
+
+  // ── Fetch voice note transcripts ──────────────────
+  useEffect(() => {
+    const fetchTranscripts = async () => {
+      const voiceMsgs = messages.filter(
+        (m) => m.file_url && m.file_url.match(/\.(m4a|mp3|wav|ogg|aac)/i)
+      )
+      if (voiceMsgs.length === 0) return
+
+      const msgIds = voiceMsgs.map((m) => m.id)
+      const { data } = await supabase
+        .from('voice_note_transcripts')
+        .select('message_id, transcript')
+        .in('message_id', msgIds)
+
+      if (data) {
+        const tMap = {}
+        data.forEach((t) => { tMap[t.message_id] = t.transcript })
+        setTranscripts((prev) => ({ ...prev, ...tMap }))
+      }
+    }
+    fetchTranscripts()
+  }, [messages])
+
   const handleSend = async () => {
     if (!text.trim() || sending) return
     if (isBlockedState) {
@@ -254,6 +336,7 @@ export default function ChatScreen({ route, navigation }) {
       await sendMessage(channel.id, text.trim(), null, replyTo?.id)
       setText('')
       setReplyTo(null)
+      setSmartReplies([]) // Hide smart replies when user types
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100)
     } catch (error) {
       toast.show(error.message || 'Failed to send', 'error')
@@ -555,18 +638,46 @@ export default function ChatScreen({ route, navigation }) {
   const renderMessageContent = (item, isMine) => {
     // Audio file (voice note)
     if (item.file_url && item.file_url.match(/\.(m4a|mp3|wav|ogg|aac)/i)) {
+      const hasTranscript = !!transcripts[item.id]
+      const isExpanded = expandedTranscripts[item.id]
       return (
-        <View style={styles.voiceNote}>
-          <Ionicons name="mic" size={20} color="#fff" />
-          <View style={styles.waveform}>
-            {[1, 2, 3, 4, 5, 4, 3, 2, 1].map((h, i) => (
-              <View
-                key={i}
-                style={[styles.waveformBar, { height: h * 4 }]}
-              />
-            ))}
+        <View>
+          <View style={styles.voiceNote}>
+            <Ionicons name="mic" size={20} color="#fff" />
+            <View style={styles.waveform}>
+              {[1, 2, 3, 4, 5, 4, 3, 2, 1].map((h, i) => (
+                <View
+                  key={i}
+                  style={[styles.waveformBar, { height: h * 4 }]}
+                />
+              ))}
+            </View>
+            <Text style={styles.voiceDuration}>0:05</Text>
           </View>
-          <Text style={styles.voiceDuration}>0:05</Text>
+          {hasTranscript && (
+            <TouchableOpacity
+              style={styles.transcriptToggle}
+              onPress={() => setExpandedTranscripts((prev) => ({
+                ...prev,
+                [item.id]: !prev[item.id],
+              }))}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={isExpanded ? 'chevron-up' : 'chevron-down'}
+                size={12}
+                color={colors.textMuted}
+              />
+              <Text style={styles.transcriptToggleText}>
+                {isExpanded ? 'Hide transcript' : 'View transcript'}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {hasTranscript && isExpanded && (
+            <View style={styles.transcriptContainer}>
+              <Text style={styles.transcriptText}>{transcripts[item.id]}</Text>
+            </View>
+          )}
         </View>
       )
     }
@@ -855,6 +966,31 @@ export default function ChatScreen({ route, navigation }) {
         </View>
       )}
 
+      {/* Smart Reply Suggestions */}
+      {smartReplies.length > 0 && !text.trim() && (
+        <View style={styles.smartReplyBar}>
+          <View style={styles.smartReplyLabel}>
+            <Ionicons name="flash-outline" size={14} color={colors.accent} />
+            <Text style={styles.smartReplyLabelText}>Suggested replies</Text>
+          </View>
+          <View style={styles.smartReplyChips}>
+            {smartReplies.map((reply, idx) => (
+              <TouchableOpacity
+                key={idx}
+                style={styles.smartReplyChip}
+                onPress={() => {
+                  setText(reply)
+                  setSmartReplies([])
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.smartReplyChipText} numberOfLines={1}>{reply}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+      )}
+
       {/* Typing Indicator */}
       {typingUserIds.size > 0 && (
         <View style={styles.typingIndicator}>
@@ -894,6 +1030,7 @@ export default function ChatScreen({ route, navigation }) {
             onChangeText={(v) => {
               setText(v)
               handleTyping()
+              if (v.trim()) setSmartReplies([]) // Hide smart replies when user starts typing
             }}
             multiline
             maxLength={1000}
@@ -1426,6 +1563,69 @@ const makeStyles = (colors) => StyleSheet.create({
     color: colors.textTertiary,
     fontSize: 13,
     flex: 1,
+  },
+
+  // ── Smart Reply Suggestions ───────────────────────────
+  smartReplyBar: {
+    backgroundColor: colors.surface,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderTopWidth: 0.5,
+    borderTopColor: colors.border,
+  },
+  smartReplyLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 6,
+  },
+  smartReplyLabelText: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  smartReplyChips: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  smartReplyChip: {
+    backgroundColor: `${colors.primary}15`,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: `${colors.primary}30`,
+  },
+  smartReplyChipText: {
+    color: colors.primary,
+    fontSize: 13,
+    fontWeight: '500',
+    maxWidth: 160,
+  },
+
+  // ── Transcript UI ──────────────────────────────────────
+  transcriptToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 4,
+  },
+  transcriptToggleText: {
+    color: colors.textMuted,
+    fontSize: 11,
+  },
+  transcriptContainer: {
+    backgroundColor: `${colors.bg}80`,
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 4,
+  },
+  transcriptText: {
+    color: colors.textTertiary,
+    fontSize: 12,
+    lineHeight: 17,
+    fontStyle: 'italic',
   },
 
   // ── Blocked Banner ───────────────────────────────
